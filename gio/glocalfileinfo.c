@@ -1461,6 +1461,8 @@ get_thumbnail_attributes (const char     *path,
   char *filename;
   gsize idx;
   const char * const sizes[] = {
+    "xx-large",
+    "x-large",
     "large",
     "normal",
   };
