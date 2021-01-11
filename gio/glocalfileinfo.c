@@ -1387,7 +1387,67 @@ get_content_type (const char          *basename,
   
 }
 
-/* @stat_buf is the pre-calculated result of stat(path), or %NULL if that failed. */
+/* Check if the thumbnail at @thumbnail_root/filename@ exists. If so, verify
+ * that it's valid and set its attributes on @info. Return %TRUE if the
+ * thumbnail exists and is valid. */
+static gboolean
+try_thumbnail (const char           *uri,
+               const GLocalFileStat *stat_buf,
+               GFileInfo            *info,
+               const char           *filename)
+{
+  gboolean file_exists, thumbnail_valid = FALSE;
+
+  file_exists = g_file_test (filename, G_FILE_TEST_IS_REGULAR);
+
+  if (file_exists)
+    {
+      thumbnail_valid = thumbnail_verify (filename, uri, stat_buf);
+
+      _g_file_info_set_attribute_byte_string_by_id (info, G_FILE_ATTRIBUTE_ID_THUMBNAIL_PATH, filename);
+      _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_THUMBNAIL_IS_VALID, thumbnail_valid);
+    }
+
+  return file_exists && thumbnail_valid;
+}
+
+/* Check if a thumbnailing failure indicator exists at
+ * @thumbnail_root/@thumbnail_dir/fail/gnome-thumbnail-factory/@basename. If so,
+ * verify that it’s valid and set its attributes on @info. Return %TRUE if the
+ * failure indicator exists and is valid. */
+static gboolean
+try_thumbnail_fail (const char           *uri,
+                    const GLocalFileStat *stat_buf,
+                    GFileInfo            *info,
+                    const char           *thumbnail_root,
+                    const char           *thumbnail_dir,
+                    const char           *basename)
+{
+  char *filename = NULL;
+  gboolean file_exists, thumbnail_valid = FALSE;
+
+  filename = g_build_filename (thumbnail_root, thumbnail_dir, "fail",
+                               "gnome-thumbnail-factory",
+                               basename,
+                               NULL);
+  file_exists = g_file_test (filename, G_FILE_TEST_IS_REGULAR);
+
+  if (file_exists)
+    {
+      thumbnail_valid = thumbnail_verify (filename, uri, stat_buf);
+
+      _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_THUMBNAILING_FAILED, TRUE);
+      _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_THUMBNAIL_IS_VALID, thumbnail_valid);
+    }
+
+  g_free (filename);
+
+  return file_exists && thumbnail_valid;
+}
+
+/* @stat_buf is the pre-calculated result of stat(path), or %NULL if that failed.
+ *
+ * Reference: https://specifications.freedesktop.org/thumbnail-spec/latest/ */
 static void
 get_thumbnail_attributes (const char     *path,
                           GFileInfo      *info,
@@ -1395,8 +1455,13 @@ get_thumbnail_attributes (const char     *path,
 {
   GChecksum *checksum;
   char *uri;
-  char *filename;
   char *basename;
+  char *filename;
+  gsize idx;
+  const char * const sizes[] = {
+    "large",
+    "normal",
+  };
 
   uri = g_filename_to_uri (path, NULL, NULL);
 
@@ -1406,48 +1471,26 @@ get_thumbnail_attributes (const char     *path,
   basename = g_strconcat (g_checksum_get_string (checksum), ".png", NULL);
   g_checksum_free (checksum);
 
-  filename = g_build_filename (g_get_user_cache_dir (),
-                               "thumbnails", "large", basename,
-                               NULL);
-
-  if (g_file_test (filename, G_FILE_TEST_IS_REGULAR))
+  for (idx = 0; idx < G_N_ELEMENTS (sizes); idx++)
     {
-      _g_file_info_set_attribute_byte_string_by_id (info, G_FILE_ATTRIBUTE_ID_THUMBNAIL_PATH, filename);
-      _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_THUMBNAIL_IS_VALID,
-                                                thumbnail_verify (filename, uri, stat_buf));
-    }
-  else
-    {
-      g_free (filename);
       filename = g_build_filename (g_get_user_cache_dir (),
-                                   "thumbnails", "normal", basename,
+                                   "thumbnails", sizes[idx], basename,
                                    NULL);
-
-      if (g_file_test (filename, G_FILE_TEST_IS_REGULAR))
-        {
-          _g_file_info_set_attribute_byte_string_by_id (info, G_FILE_ATTRIBUTE_ID_THUMBNAIL_PATH, filename);
-          _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_THUMBNAIL_IS_VALID,
-                                                    thumbnail_verify (filename, uri, stat_buf));
-        }
-      else
+      if (try_thumbnail (uri, stat_buf, info, filename))
         {
           g_free (filename);
-          filename = g_build_filename (g_get_user_cache_dir (),
-                                       "thumbnails", "fail",
-                                       "gnome-thumbnail-factory",
-                                       basename,
-                                       NULL);
-
-          if (g_file_test (filename, G_FILE_TEST_IS_REGULAR))
-            {
-              _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_THUMBNAILING_FAILED, TRUE);
-              _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_THUMBNAIL_IS_VALID,
-                                                        thumbnail_verify (filename, uri, stat_buf));
-            }
+          goto done;
         }
+
+      g_free (filename);
     }
+
+  try_thumbnail_fail (uri, stat_buf, info,
+                      g_get_user_cache_dir (),
+                      "thumbnails", basename);
+
+done:
   g_free (basename);
-  g_free (filename);
   g_free (uri);
 }
 
