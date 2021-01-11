@@ -1454,8 +1454,10 @@ get_thumbnail_attributes (const char     *path,
                           const GLocalFileStat *stat_buf)
 {
   GChecksum *checksum;
+  char *path_dirname;
   char *uri;
   char *basename;
+  char *source_basename;
   char *filename;
   gsize idx;
   const char * const sizes[] = {
@@ -1463,13 +1465,13 @@ get_thumbnail_attributes (const char     *path,
     "normal",
   };
 
+  /* First look for thumbnails in the local thumbnail repository, under the
+   * assumption that our local storage will be the fastest to query. */
   uri = g_filename_to_uri (path, NULL, NULL);
 
   checksum = g_checksum_new (G_CHECKSUM_MD5);
   g_checksum_update (checksum, (const guchar *) uri, strlen (uri));
-
   basename = g_strconcat (g_checksum_get_string (checksum), ".png", NULL);
-  g_checksum_free (checksum);
 
   for (idx = 0; idx < G_N_ELEMENTS (sizes); idx++)
     {
@@ -1485,13 +1487,51 @@ get_thumbnail_attributes (const char     *path,
       g_free (filename);
     }
 
-  try_thumbnail_fail (uri, stat_buf, info,
-                      g_get_user_cache_dir (),
-                      "thumbnails", basename);
+  if (try_thumbnail_fail (uri, stat_buf, info,
+                          g_get_user_cache_dir (),
+                          "thumbnails", basename))
+    goto done;
+
+  g_free (basename);
+  g_free (uri);
+
+  /* There was no thumbnail in the local repository, so check if one exists in
+   * the shared repository for this folder. */
+  path_dirname = g_path_get_dirname (path);
+  source_basename = g_path_get_basename (path);
+  uri = g_uri_escape_string (source_basename, NULL, TRUE);
+  g_free (source_basename);
+
+  g_checksum_reset (checksum);
+  g_checksum_update (checksum, (const guchar *) uri, strlen (uri));
+  basename = g_strconcat (g_checksum_get_string (checksum), ".png", NULL);
+
+  for (idx = 0; idx < G_N_ELEMENTS (sizes); idx++)
+    {
+      filename = g_build_filename (path_dirname,
+                                   ".sh_thumbnails", sizes[idx], basename,
+                                   NULL);
+      if (try_thumbnail (uri, stat_buf, info, filename))
+        {
+          g_free (filename);
+          goto done_shared;
+        }
+
+      g_free (filename);
+    }
+
+  if (try_thumbnail_fail (uri, stat_buf, info,
+                          path_dirname, ".sh_thumbnails",
+                          basename))
+    goto done_shared;
+
+done_shared:
+  g_free (path_dirname);
 
 done:
   g_free (basename);
   g_free (uri);
+  g_checksum_free (checksum);
 }
 
 #ifdef G_OS_WIN32
