@@ -1063,8 +1063,57 @@ test_uri_build (void)
   g_assert_cmpstr (g_uri_get_path (uri), ==, "/path");
   g_assert_cmpstr (g_uri_get_query (uri), ==, "query");
   g_assert_cmpstr (g_uri_get_fragment (uri), ==, "fragment");
-  g_assert_cmpstr (g_uri_get_user (uri), ==, NULL);
+  g_assert_cmpstr (g_uri_get_user (uri), ==, "userinfo");
   g_assert_cmpstr (g_uri_get_password (uri), ==, NULL);
+  g_assert_cmpstr (g_uri_get_auth_params (uri), ==, NULL);
+  g_uri_unref (uri);
+
+  uri = g_uri_build (G_URI_FLAGS_HAS_PASSWORD, "scheme", "user:pass;auth", "host", 1234,
+                     "/path", "query", "fragment");
+
+  g_assert_cmpint (g_uri_get_flags (uri), ==, G_URI_FLAGS_HAS_PASSWORD);
+  g_assert_cmpstr (g_uri_get_scheme (uri), ==, "scheme");
+  g_assert_cmpstr (g_uri_get_userinfo (uri), ==, "user:pass;auth");
+  g_assert_cmpstr (g_uri_get_host (uri), ==, "host");
+  g_assert_cmpint (g_uri_get_port (uri), ==, 1234);
+  g_assert_cmpstr (g_uri_get_path (uri), ==, "/path");
+  g_assert_cmpstr (g_uri_get_query (uri), ==, "query");
+  g_assert_cmpstr (g_uri_get_fragment (uri), ==, "fragment");
+  g_assert_cmpstr (g_uri_get_user (uri), ==, "user");
+  g_assert_cmpstr (g_uri_get_password (uri), ==, "pass;auth");
+  g_assert_cmpstr (g_uri_get_auth_params (uri), ==, NULL);
+  g_uri_unref (uri);
+
+  uri = g_uri_build (G_URI_FLAGS_HAS_AUTH_PARAMS, "scheme", "user:pass;auth", "host", 1234,
+                     "/path", "query", "fragment");
+
+  g_assert_cmpint (g_uri_get_flags (uri), ==, G_URI_FLAGS_HAS_AUTH_PARAMS);
+  g_assert_cmpstr (g_uri_get_scheme (uri), ==, "scheme");
+  g_assert_cmpstr (g_uri_get_userinfo (uri), ==, "user:pass;auth");
+  g_assert_cmpstr (g_uri_get_host (uri), ==, "host");
+  g_assert_cmpint (g_uri_get_port (uri), ==, 1234);
+  g_assert_cmpstr (g_uri_get_path (uri), ==, "/path");
+  g_assert_cmpstr (g_uri_get_query (uri), ==, "query");
+  g_assert_cmpstr (g_uri_get_fragment (uri), ==, "fragment");
+  g_assert_cmpstr (g_uri_get_user (uri), ==, "user:pass");
+  g_assert_cmpstr (g_uri_get_password (uri), ==, NULL);
+  g_assert_cmpstr (g_uri_get_auth_params (uri), ==, "auth");
+  g_uri_unref (uri);
+
+  uri = g_uri_build (G_URI_FLAGS_HAS_PASSWORD | G_URI_FLAGS_HAS_AUTH_PARAMS, "scheme", "user:pass;auth",
+                     "host", 1234, "/path", "query", "fragment");
+
+  g_assert_cmpint (g_uri_get_flags (uri), ==, G_URI_FLAGS_HAS_PASSWORD | G_URI_FLAGS_HAS_AUTH_PARAMS);
+  g_assert_cmpstr (g_uri_get_scheme (uri), ==, "scheme");
+  g_assert_cmpstr (g_uri_get_userinfo (uri), ==, "user:pass;auth");
+  g_assert_cmpstr (g_uri_get_host (uri), ==, "host");
+  g_assert_cmpint (g_uri_get_port (uri), ==, 1234);
+  g_assert_cmpstr (g_uri_get_path (uri), ==, "/path");
+  g_assert_cmpstr (g_uri_get_query (uri), ==, "query");
+  g_assert_cmpstr (g_uri_get_fragment (uri), ==, "fragment");
+  g_assert_cmpstr (g_uri_get_user (uri), ==, "user");
+  g_assert_cmpstr (g_uri_get_password (uri), ==, "pass");
+  g_assert_cmpstr (g_uri_get_auth_params (uri), ==, "auth");
   g_uri_unref (uri);
 
   uri = g_uri_build_with_user (G_URI_FLAGS_NON_DNS, "scheme", "user", "password",
@@ -1107,6 +1156,51 @@ test_uri_build (void)
                                "/path", "query", "fragment");
   g_assert_cmpstr (g_uri_get_userinfo (uri), ==, "user");
   g_uri_unref (uri);
+
+  g_test_expect_message (G_LOG_DOMAIN,
+                         G_LOG_LEVEL_CRITICAL,
+                         "*");
+
+  uri = g_uri_build (G_URI_FLAGS_HAS_PASSWORD, "scheme", "user",
+                     "host", 1234, "/path", "query", "fragment");
+  g_test_assert_expected_messages ();
+  g_assert_null (uri);
+
+  g_test_expect_message (G_LOG_DOMAIN,
+                         G_LOG_LEVEL_CRITICAL,
+                         "*");
+
+  uri = g_uri_build (G_URI_FLAGS_HAS_PASSWORD, "scheme", "u:se:r",
+                     "host", 1234, "/path", "query", "fragment");
+  g_test_assert_expected_messages ();
+  g_assert_null (uri);
+
+  g_test_expect_message (G_LOG_DOMAIN,
+                         G_LOG_LEVEL_CRITICAL,
+                         "*");
+
+  uri = g_uri_build (G_URI_FLAGS_HAS_AUTH_PARAMS, "scheme", "user",
+                     "host", 1234, "/path", "query", "fragment");
+  g_test_assert_expected_messages ();
+  g_assert_null (uri);
+
+  g_test_expect_message (G_LOG_DOMAIN,
+                         G_LOG_LEVEL_CRITICAL,
+                         "*");
+
+  uri = g_uri_build (G_URI_FLAGS_HAS_AUTH_PARAMS, "scheme", "u;se;r",
+                     "host", 1234, "/path", "query", "fragment");
+  g_test_assert_expected_messages ();
+  g_assert_null (uri);
+
+  g_test_expect_message (G_LOG_DOMAIN,
+                         G_LOG_LEVEL_CRITICAL,
+                         "*");
+
+  uri = g_uri_build (G_URI_FLAGS_HAS_PASSWORD | G_URI_FLAGS_HAS_AUTH_PARAMS, "scheme", "user;auth:pass",
+                     "host", 1234, "/path", "query", "fragment");
+  g_test_assert_expected_messages ();
+  g_assert_null (uri);
 }
 
 static void

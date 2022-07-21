@@ -1881,10 +1881,66 @@ g_uri_build (GUriFlags    flags,
              const gchar *fragment)
 {
   GUri *uri;
+  const gchar *colon_index;
+  const gchar *semicolon_index;
+  gboolean has_pass;
+  gboolean has_auth;
+
+  has_pass = flags & G_URI_FLAGS_HAS_PASSWORD;
+  has_auth = flags & G_URI_FLAGS_HAS_AUTH_PARAMS;
 
   g_return_val_if_fail (scheme != NULL, NULL);
   g_return_val_if_fail (port >= -1 && port <= 65535, NULL);
   g_return_val_if_fail (path != NULL, NULL);
+  g_return_val_if_fail (userinfo != NULL || !(has_pass || has_auth), NULL);
+
+  if (has_pass)
+    {
+      colon_index = strchr (userinfo, ':');
+      if (!colon_index)
+        {
+          g_return_if_fail_warning (G_LOG_DOMAIN, G_STRFUNC, "userinfo contains no colon sign, "
+                                                             "but G_URI_FLAGS_HAS_PASSWORD flag was provided.");
+          return NULL;
+        }
+    }
+  else
+    {
+      colon_index = NULL;
+    }
+  if (colon_index && strchr (colon_index + 1, ':') && has_pass)
+    {
+      g_return_if_fail_warning (G_LOG_DOMAIN, G_STRFUNC, "userinfo contains two or more colon signs. "
+                                                         "use g_uri_build_with_user to specify parametrs.");
+      return NULL;
+    }
+
+  if (has_auth)
+    {
+      semicolon_index = strchr (userinfo, ';');
+      if (!semicolon_index)
+        {
+          g_return_if_fail_warning (G_LOG_DOMAIN, G_STRFUNC, "userinfo contains no semicolon sign, "
+                                                             "but G_URI_FLAGS_HAS_AUTH_PARAMS flag was provided.");
+          return NULL;
+        }
+    }
+  else
+    {
+      semicolon_index = NULL;
+    }
+  if (semicolon_index && strchr (semicolon_index + 1, ';') && has_auth)
+    {
+      g_return_if_fail_warning (G_LOG_DOMAIN, G_STRFUNC, "userinfo contains two or more semicolon signs. "
+                                                         "use g_uri_build_with_user to specify parametrs.");
+      return NULL;
+    }
+  if (colon_index > semicolon_index && has_pass && has_auth)
+    {
+      g_return_if_fail_warning (G_LOG_DOMAIN, G_STRFUNC, "userinfo has semicolon sign before colon sign "
+                                                         "when G_URI_FLAGS_HAS_PASSWORD and G_URI_FLAGS_HAS_AUTH_PARAMS was provided");
+      return NULL;
+    }
 
   uri = g_atomic_rc_box_new0 (GUri);
   uri->flags = flags;
@@ -1895,6 +1951,31 @@ g_uri_build (GUriFlags    flags,
   uri->path = g_strdup (path);
   uri->query = g_strdup (query);
   uri->fragment = g_strdup (fragment);
+
+  if (has_pass && has_auth)
+    {
+      uri->auth_params = g_strdup (semicolon_index + 1);
+      uri->user = g_strndup (userinfo, colon_index - userinfo + 1);
+      uri->user[colon_index - userinfo] = 0;
+      uri->password = g_strndup (colon_index + 1, semicolon_index - colon_index);
+      uri->password[semicolon_index - colon_index - 1] = 0;
+    }
+  else if (has_pass)
+    {
+      uri->user = g_strndup (userinfo, colon_index - userinfo + 1);
+      uri->user[colon_index - userinfo] = 0;
+      uri->password = g_strdup (colon_index + 1);
+    }
+  else if (has_auth)
+    {
+      uri->auth_params = g_strdup (semicolon_index + 1);
+      uri->user = g_strndup (userinfo, semicolon_index - userinfo + 1);
+      uri->user[semicolon_index - userinfo] = 0;
+    }
+  else
+    {
+      uri->user = g_strdup (userinfo);
+    }
 
   return g_steal_pointer (&uri);
 }
