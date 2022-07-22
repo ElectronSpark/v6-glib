@@ -1156,51 +1156,6 @@ test_uri_build (void)
                                "/path", "query", "fragment");
   g_assert_cmpstr (g_uri_get_userinfo (uri), ==, "user");
   g_uri_unref (uri);
-
-  g_test_expect_message (G_LOG_DOMAIN,
-                         G_LOG_LEVEL_CRITICAL,
-                         "*");
-
-  uri = g_uri_build (G_URI_FLAGS_HAS_PASSWORD, "scheme", "user",
-                     "host", 1234, "/path", "query", "fragment");
-  g_test_assert_expected_messages ();
-  g_assert_null (uri);
-
-  g_test_expect_message (G_LOG_DOMAIN,
-                         G_LOG_LEVEL_CRITICAL,
-                         "*");
-
-  uri = g_uri_build (G_URI_FLAGS_HAS_PASSWORD, "scheme", "u:se:r",
-                     "host", 1234, "/path", "query", "fragment");
-  g_test_assert_expected_messages ();
-  g_assert_null (uri);
-
-  g_test_expect_message (G_LOG_DOMAIN,
-                         G_LOG_LEVEL_CRITICAL,
-                         "*");
-
-  uri = g_uri_build (G_URI_FLAGS_HAS_AUTH_PARAMS, "scheme", "user",
-                     "host", 1234, "/path", "query", "fragment");
-  g_test_assert_expected_messages ();
-  g_assert_null (uri);
-
-  g_test_expect_message (G_LOG_DOMAIN,
-                         G_LOG_LEVEL_CRITICAL,
-                         "*");
-
-  uri = g_uri_build (G_URI_FLAGS_HAS_AUTH_PARAMS, "scheme", "u;se;r",
-                     "host", 1234, "/path", "query", "fragment");
-  g_test_assert_expected_messages ();
-  g_assert_null (uri);
-
-  g_test_expect_message (G_LOG_DOMAIN,
-                         G_LOG_LEVEL_CRITICAL,
-                         "*");
-
-  uri = g_uri_build (G_URI_FLAGS_HAS_PASSWORD | G_URI_FLAGS_HAS_AUTH_PARAMS, "scheme", "user;auth:pass",
-                     "host", 1234, "/path", "query", "fragment");
-  g_test_assert_expected_messages ();
-  g_assert_null (uri);
 }
 
 static void
