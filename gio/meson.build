@@ -789,7 +789,9 @@ gioenumtypes_dep = declare_dependency(sources : [gioenumtypes_h, glib_enumtypes_
 
 file_monitor_backend = get_option('file_monitor_backend')
 if file_monitor_backend == 'auto'
-  if glib_conf.has('HAVE_SYS_INOTIFY_H') and have_func_inotify_init1
+  if host_system == 'gnu'
+    file_monitor_backend = 'hurd'
+  elif glib_conf.has('HAVE_SYS_INOTIFY_H') and have_func_inotify_init1
     file_monitor_backend = 'inotify'
   elif have_func_kqueue and have_func_kevent
     file_monitor_backend = 'kqueue'
@@ -824,6 +826,11 @@ if file_monitor_backend == 'win32'
   glib_conf.set('FILE_MONITOR_BACKEND_WIN32', 1)
   subdir('win32')
   internal_deps += [ giowin32_lib ]
+endif
+
+if file_monitor_backend == 'hurd'
+  subdir('hurd')
+  internal_deps += [hurd_lib]
 endif
 
 if have_bash

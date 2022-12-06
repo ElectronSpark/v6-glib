@@ -268,7 +268,7 @@ environment.
   [class@Gio.FileMonitor] implementation to override the default for debugging
   purposes. The [class@Gio.FileMonitor] implementation for local files that is included
   in GIO on Linux has the name `inotify`, others that are built are built as
-  modules (depending on the platform) are called `kqueue` and `win32`. The
+  modules (depending on the platform) are called `kqueue`, `win32`, and `hurd`. The
   special value `help` can be used to print a list of available
   implementations to standard output.
 - `GIO_USE_VOLUME_MONITOR`.  This variable can be set to the name of a
@@ -393,15 +393,14 @@ The following extension points are currently defined by GIO:
   point must be derived from `GLocalFileMonitor`. GIO uses the implementation
   with the highest priority that is supported, as determined by
   `GLocalFileMonitorClass.is_supported()`. GIO uses this extension
-  point internally, to switch between its poll-based and inotify-based file
-  monitoring implementations.
+  point internally, to switch between its file monitoring implementations.
 - `G_LOCAL_DIRECTORY_MONITOR_EXTENSION_POINT_NAME`.  Allows to override the
   directory monitor implementation for local files. Implementations of this
   extension point must be derived from `GLocalDirectoryMonitor`. GIO uses the
   implementation with the highest priority that is supported, as determined
   by `GLocalDirectoryMonitorClass.is_supported()`. GIO uses
-  this extension point internally, to switch between its poll-based and
-  inotify-based directory monitoring implementations.
+  this extension point internally, to switch between its directory monitoring
+  implementations.
 - `G_DESKTOP_APP_INFO_LOOKUP_EXTENSION_POINT_NAME`.  Unix-only. Allows to
   provide a way to associate default handlers with URI schemes.
   Implementations of this extension point must implement the
