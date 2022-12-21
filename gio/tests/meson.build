@@ -9,6 +9,7 @@ test_c_args = [
   '-DG_LOG_DOMAIN="GLib-GIO"',
   '-DGLIB_MKENUMS="@0@"'.format(glib_mkenums),
   '-DGLIB_COMPILE_SCHEMAS="@0@"'.format(glib_compile_schemas.full_path()),
+  '-DGLIB_COMPILE_RESOURCES="@0@"'.format(glib_compile_resources.full_path()),
   '-UG_DISABLE_ASSERT',
 ]
 
@@ -542,7 +543,7 @@ if host_machine.system() != 'windows'
         'c_args' : ['-DSRCDIR="@0@"'.format(meson.current_source_dir()),
                     '-DTEST_LOCALE_PATH="@0@"'.format(test_mo_dir)],
         'install' : false,
-        'depends' : glib_compile_schemas,
+        'depends' : [glib_compile_schemas, glib_compile_resources],
       },
     }
   endif
