@@ -265,7 +265,7 @@ g_settings_schema_source_unref (GSettingsSchemaSource *source)
       switch (source->type)
         {
         case G_SETTINGS_SCHEMA_SOURCE_FILE:
-          g_free(source->type_data.file.directory);
+          g_free (source->type_data.file.directory);
           break;
         case G_SETTINGS_SCHEMA_SOURCE_RESOURCE:
           g_free(source->type_data.resource.path);
@@ -909,13 +909,13 @@ parse_into_text_tables_directory (const gchar *directory,
 }
 
 static void
-parse_into_text_tables_resource (const char          *path,
-                                 GResourceLookupFlags lookup_flags,
-                                 GHashTable          *summaries,
-                                 GHashTable          *descriptions)
+parse_into_text_tables_resource (const char           *path,
+                                 GResourceLookupFlags  lookup_flags,
+                                 GHashTable           *summaries,
+                                 GHashTable           *descriptions)
 {
   char *xml_path;
-  GError* error = NULL;
+  GError *error = NULL;
   GBytes *bytes;
   const char *data;
   gsize size, i;
