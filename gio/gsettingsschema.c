@@ -388,7 +388,7 @@ g_settings_schema_source_new_from_path (const gchar            *path,
 /**
  * g_settings_schema_source_new_from_bytes:
  * @bytes: a #GBytes
- * @parent: (allow-none): a #GSettingsSchemaSource, or %NULL
+ * @parent: (nullable): a #GSettingsSchemaSource, or %NULL
  * @trusted: %TRUE, if the data is trusted
  * @error: a pointer to a #GError pointer set to %NULL, or %NULL
  *
