@@ -368,6 +368,9 @@ g_settings_schema_source_new_from_path (const gchar            *path,
   GSettingsSchemaSource *source;
   GvdbTable *table;
 
+  g_return_val_if_fail (path != NULL, NULL);
+  g_return_val_if_fail (error == NULL || *error == NULL, NULL);
+
   table = gvdb_table_new (path, trusted, error);
   if (table == NULL)
     return NULL;
