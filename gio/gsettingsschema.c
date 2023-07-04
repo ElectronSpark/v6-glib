@@ -478,8 +478,10 @@ g_settings_schema_source_new_from_resource (const gchar            *path,
     return NULL;
 
   source = g_settings_schema_source_new_from_bytes (bytes, parent, trusted, error);
-  if (source == NULL)
+  if (source == NULL) {
+    g_bytes_unref (bytes);
     return NULL;
+  }
   g_bytes_unref (bytes);
 
   source->type = G_SETTINGS_SCHEMA_SOURCE_RESOURCE;
