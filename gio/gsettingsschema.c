@@ -167,7 +167,7 @@ struct _GSettingsSchema
  * @G_SETTINGS_SCHEMA_SOURCE_RESOURCE: The schema source was created from a resource
  * @G_SETTINGS_SCHEMA_SOURCE_BYTES: The schema source was created from #GBytes
  *
- * Type type of a #GSettingsSchemaSource. It indicates how the source was created.
+ * Type of a #GSettingsSchemaSource. It indicates how the source was created.
  */
 typedef enum
 {
@@ -324,7 +324,7 @@ g_settings_schema_source_unref (GSettingsSchemaSource *source)
  * @parent should probably be given as the default schema source, as
  * returned by g_settings_schema_source_get_default().
  *
- * Returns: (transfer full) (nullable): a new #GSettingsSchemaSource, or %NULL
+ * Returns: (transfer full): a new #GSettingsSchemaSource, or %NULL
  *
  * Since: 2.32
  **/
@@ -355,9 +355,9 @@ g_settings_schema_source_new_from_directory (const gchar            *directory,
  * takes a path to a compiled schema file directly instead of to the
  * directory it is in.
  *
- * Returns: (transfer full) (nullable): a new #GSettingsSchemaSource, or %NULL
+ * Returns: (transfer full): a new #GSettingsSchemaSource, or %NULL
  *
- * Since: 2.76
+ * Since: 2.78
  **/
 GSettingsSchemaSource *
 g_settings_schema_source_new_from_path (const gchar            *path,
@@ -408,7 +408,7 @@ g_settings_schema_source_new_from_path (const gchar            *path,
  *
  * Returns: (transfer full) (nullable): a new #GSettingsSchemaSource, or %NULL
  *
- * Since: 2.76
+ * Since: 2.78
  **/
 GSettingsSchemaSource *
 g_settings_schema_source_new_from_bytes (GBytes                 *bytes,
@@ -439,7 +439,7 @@ g_settings_schema_source_new_from_bytes (GBytes                 *bytes,
  * g_settings_schema_source_new_from_resource:
  * @path: the resource path
  * @lookup_flags: A #GResourceLookupFlags
- * @parent: (allow-none): a #GSettingsSchemaSource, or %NULL
+ * @parent: (nullable): a #GSettingsSchemaSource, or %NULL
  * @trusted: %TRUE, if the resource is trusted
  * @error: a pointer to a #GError pointer set to %NULL, or %NULL
  *
@@ -450,16 +450,15 @@ g_settings_schema_source_new_from_bytes (GBytes                 *bytes,
  * This should only be used in standalone applications and should not
  * be used in situations where settings are shared with other applications.
  *
- * Note that g_settings_schema_key_get_summary() and
- * g_settings_schema_key_get_description() will always return %NULL for
- * a #GSettingsSchemaKey belonging to a #GSettingsSchema created from a
- * schema source returned by this function.
+ * Note that for g_settings_schema_key_get_summary() and
+ * g_settings_schema_key_get_description() to work, an XML schema resource
+ * $path.xml must be present.
  *
  * See g_settings_schema_source_new_from_directory() for more information.
  *
- * Returns: (transfer full) (nullable): a new #GSettingsSchemaSource, or %NULL
+ * Returns: (transfer full): a new #GSettingsSchemaSource, or %NULL
  *
- * Since: 2.76
+ * Since: 2.78
  **/
 GSettingsSchemaSource *
 g_settings_schema_source_new_from_resource (const gchar            *path,
