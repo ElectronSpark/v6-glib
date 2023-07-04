@@ -77,6 +77,7 @@ glib_tests = {
     'source' : 'overflow.c',
     'c_args' : ['-D_GLIB_TEST_OVERFLOW_FALLBACK'],
   },
+  'pathbuf' : {},
   'pattern' : {},
   'private' : {},
   'protocol' : {},
@@ -103,16 +104,6 @@ glib_tests = {
   },
   'shell' : {},
   'slice' : {},
-  'slice-color' : {},
-  'slice-concurrent' : {},
-  'slice-known-pages' : {'suite' : ['no-valgrind']},
-  'slice-glib' : {},
-  'slice-slab' : {},
-  'slice-malloc' : {},
-  'slice-memchunk' : {
-    'source' : ['slice-memchunk.c', 'memchunks.c'],
-  },
-  'slice-eager-freeing' : {},
   'slist' : {},
   'sort' : {},
   'spawn-multithreaded' : {
@@ -133,13 +124,18 @@ glib_tests = {
     'extra_programs' : ['test-spawn-echo'],
   },
   'spawn-test' : {
-    'can_fail': host_system == 'windows' and cc.get_id() == 'gcc',
     'extra_programs' : host_machine.system() == 'windows' ? ['spawn-test-win32-gui'] : [],
   },
   'strfuncs' : {},
   'string' : {},
+  'string-macro' : {
+    'source' : 'string.c',
+    'c_args' : cc.get_id() == 'gcc' ? ['-Werror=sign-conversion'] : [],
+    'install' : false,
+  },
   'strvbuilder' : {},
   'testing' : {
+    'args': [ '--verbose' ],
     'extra_programs' : ['testing-helper'],
   },
   'test-printf' : {},
@@ -285,6 +281,7 @@ endif
 
 test_extra_programs = {
   'assert-msg-test' : {},
+  'markup-example' : {'install' : false},
   'spawn-path-search-helper' : {},
   'spawn-test-helper' : {},
   'testing-helper' : {},
@@ -292,7 +289,7 @@ test_extra_programs = {
   'test-spawn-echo' : {},
 }
 
-if have_dlopen_dlsym
+if have_dlopen_dlsym and have_rtld_next
   test_extra_programs += {
     'messages-low-memory' : {
       'dependencies' : libdl_dep,
@@ -386,7 +383,7 @@ foreach test_name, extra_args : glib_tests
   )
 
   depends = [extra_args.get('depends', [])]
-  suite = ['glib'] + extra_args.get('suite', [])
+  suite = ['glib', 'core'] + extra_args.get('suite', [])
   timeout = suite.contains('slow') ? test_timeout_slow : test_timeout
 
   if extra_args.get('can_fail', false)
@@ -398,6 +395,8 @@ foreach test_name, extra_args : glib_tests
   endforeach
 
   test(test_name, exe,
+    args: extra_args.get('args', []),
+    protocol : extra_args.get('protocol', test_protocol),
     depends : depends,
     env : test_env,
     timeout : timeout,
@@ -431,7 +430,7 @@ endif
 
 foreach test_name, extra_args : python_tests
   depends = [extra_args.get('depends', [])]
-  suite = ['glib', 'no-valgrind']
+  suite = ['glib', 'core', 'no-valgrind']
 
   if extra_args.get('can_fail', false)
     suite += 'failing'
@@ -444,6 +443,7 @@ foreach test_name, extra_args : python_tests
   test(
     test_name,
     python,
+    protocol : extra_args.get('protocol', test_protocol),
     depends: depends,
     args: ['-B', files(test_name)],
     env: test_env,
@@ -486,8 +486,39 @@ if not meson.is_cross_build() and host_system != 'windows'
     test('gtester-xmllint-check', xmllint,
       args : ['--noout', tmpsample_xml],
       env : test_env,
-      suite : ['glib'],
+      suite : ['glib', 'core'],
     )
   endif
 endif
 
+if have_bash and have_pkg_config
+  prefix = get_option('prefix')
+  if prefix.endswith(':/')
+    prefix += '/'
+  endif
+  test('glib-2.0-pkg-config',
+    bash,
+    args: [
+      '-xe', '-c',
+      '\n'.join([
+        'pkg-config --validate glib-2.0',
+        'test "$(pkg-config --modversion glib-2.0)" = "@0@"'.format(glib_version),
+        'test "$(pkg-config --variable=prefix glib-2.0)" = "@0@"'.format(
+          get_option('prefix')),
+        'test "$(pkg-config --variable=datadir glib-2.0)" = "@0@"'.format(
+          prefix / get_option('datadir')),
+        'test "$(pkg-config --variable=gobject_query glib-2.0)" = "@0@"'.format(
+          prefix / get_option('bindir') / 'gobject-query'),
+        'test "$(pkg-config --variable=glib_mkenums glib-2.0)" = "@0@"'.format(
+          prefix / get_option('bindir') / 'glib-mkenums'),
+        'test "$(pkg-config --variable=glib_valgrind_suppressions glib-2.0)" = "@0@"'.format(
+          prefix / get_option('datadir') /
+          valgrind_suppression_file_install_subdir / fs.name(valgrind_suppression_file)),
+      ]),
+    ],
+    suite: ['glib', 'core', 'no-valgrind', 'pkg-config'],
+    env: {
+      'PKG_CONFIG_PATH': meson.project_build_root() / 'meson-private',
+    },
+  )
+endif

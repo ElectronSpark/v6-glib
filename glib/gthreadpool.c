@@ -117,9 +117,6 @@ static gint max_unused_threads = 2;
 static gint kill_unused_threads = 0;
 static guint max_idle_time = 15 * 1000;
 
-static GThreadSchedulerSettings shared_thread_scheduler_settings;
-static gboolean have_shared_thread_scheduler_settings = FALSE;
-
 typedef struct
 {
   /* Either thread or error are set in the end. Both transfer-full. */
@@ -471,30 +468,22 @@ g_thread_pool_start_thread (GRealThreadPool  *pool,
         {
           /* For non-exclusive thread-pools this can be called at any time
            * when a new thread is needed. We make sure to create a new thread
-           * here with the correct scheduler settings: either by directly
-           * providing them if supported by the GThread implementation or by
-           * going via our helper thread.
+           * here with the correct scheduler settings by going via our helper
+           * thread.
            */
-          if (have_shared_thread_scheduler_settings)
-            {
-              thread = g_thread_new_internal (name, g_thread_proxy, g_thread_pool_thread_proxy, pool, 0, &shared_thread_scheduler_settings, error);
-            }
-          else
-            {
-              SpawnThreadData spawn_thread_data = { (GThreadPool *) pool, NULL, NULL };
+          SpawnThreadData spawn_thread_data = { (GThreadPool *) pool, NULL, NULL };
 
-              g_async_queue_lock (spawn_thread_queue);
+          g_async_queue_lock (spawn_thread_queue);
 
-              g_async_queue_push_unlocked (spawn_thread_queue, &spawn_thread_data);
+          g_async_queue_push_unlocked (spawn_thread_queue, &spawn_thread_data);
 
-              while (!spawn_thread_data.thread && !spawn_thread_data.error)
-                g_cond_wait (&spawn_thread_cond, _g_async_queue_get_mutex (spawn_thread_queue));
+          while (!spawn_thread_data.thread && !spawn_thread_data.error)
+            g_cond_wait (&spawn_thread_cond, _g_async_queue_get_mutex (spawn_thread_queue));
 
-              thread = spawn_thread_data.thread;
-              if (!thread)
-                g_propagate_error (error, g_steal_pointer (&spawn_thread_data.error));
-              g_async_queue_unlock (spawn_thread_queue);
-            }
+          thread = spawn_thread_data.thread;
+          if (!thread)
+            g_propagate_error (error, g_steal_pointer (&spawn_thread_data.error));
+          g_async_queue_unlock (spawn_thread_queue);
         }
 
       if (thread == NULL)
@@ -547,6 +536,15 @@ g_thread_pool_start_thread (GRealThreadPool  *pool,
  * since their threads are never considered idle and returned to the
  * global pool.
  *
+ * Note that the threads used by exclusive thread pools will all inherit the
+ * scheduler settings of the current thread while the threads used by
+ * non-exclusive thread pools will inherit the scheduler settings from the
+ * first thread that created such a thread pool.
+ *
+ * At least one thread will be spawned when this function is called, either to
+ * create the @max_threads exclusive threads, or to preserve the scheduler
+ * settings of the current thread for future spawns.
+ *
  * @error can be %NULL to ignore errors, or non-%NULL to report
  * errors. An error can only occur when @exclusive is set to %TRUE
  * and not all @max_threads threads could be created.
@@ -581,6 +579,9 @@ g_thread_pool_new (GFunc      func,
  * but allowing @item_free_func to be specified to free the data passed
  * to g_thread_pool_push() in the case that the #GThreadPool is stopped
  * and freed before all tasks have been executed.
+ *
+ * @item_free_func will *not* be called on items successfully passed to @func.
+ * @func is responsible for freeing the items passed to it.
  *
  * Returns: (transfer full): the new #GThreadPool
  *
@@ -620,43 +621,31 @@ g_thread_pool_new_full (GFunc           func,
   if (!unused_thread_queue)
       unused_thread_queue = g_async_queue_new ();
 
-  /* For the very first non-exclusive thread-pool we remember the thread
-   * scheduler settings of the thread creating the pool, if supported by
-   * the GThread implementation. This is then used for making sure that
-   * all threads created on the non-exclusive thread-pool have the same
-   * scheduler settings, and more importantly don't just inherit them
-   * from the thread that just happened to push a new task and caused
-   * a new thread to be created.
+  /*
+   * Spawn a helper thread that is only responsible for spawning new threads
+   * with the scheduler settings of the current thread.
+   *
+   * This is then used for making sure that all threads created on the
+   * non-exclusive thread-pool have the same scheduler settings, and more
+   * importantly don't just inherit them from the thread that just happened to
+   * push a new task and caused a new thread to be created.
    *
    * Not doing so could cause real-time priority threads or otherwise
    * threads with problematic scheduler settings to be part of the
    * non-exclusive thread-pools.
    *
-   * If this is not supported by the GThread implementation then we here
-   * start a thread that will inherit the scheduler settings from this
-   * very thread and whose only purpose is to spawn new threads with the
-   * same settings for use by the non-exclusive thread-pools.
-   *
-   *
-   * For non-exclusive thread-pools this is not required as all threads
-   * are created immediately below and are running forever, so they will
+   * For exclusive thread-pools this is not required as all threads are
+   * created immediately below and are running forever, so they will
    * automatically inherit the scheduler settings from this very thread.
    */
-  if (!exclusive && !have_shared_thread_scheduler_settings && !spawn_thread_queue)
+  if (!exclusive && !spawn_thread_queue)
     {
-      if (g_thread_get_scheduler_settings (&shared_thread_scheduler_settings))
-        {
-          have_shared_thread_scheduler_settings = TRUE;
-        }
-      else
-        {
-          GThread *pool_spawner = NULL;
+      GThread *pool_spawner = NULL;
 
-          spawn_thread_queue = g_async_queue_new ();
-          g_cond_init (&spawn_thread_cond);
-          pool_spawner = g_thread_new ("pool-spawner", g_thread_pool_spawn_thread, NULL);
-          g_ignore_leak (pool_spawner);
-        }
+      spawn_thread_queue = g_async_queue_new ();
+      g_cond_init (&spawn_thread_cond);
+      pool_spawner = g_thread_new ("pool-spawner", g_thread_pool_spawn_thread, NULL);
+      g_ignore_leak (pool_spawner);
     }
   G_UNLOCK (init);
 

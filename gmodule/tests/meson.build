@@ -5,6 +5,7 @@ gmodule_tests = {
 if have_cxx
   gmodule_tests += {
     'cxx' : {
+      'protocol': 'exitcode',
       'source' : ['cxx.cpp'],
       'suite' : ['cpp'],
     }
@@ -13,6 +14,7 @@ if have_cxx
   foreach std, arg: cxx_standards
     gmodule_tests += {
       'cxx-@0@'.format(std) : {
+        'protocol': 'exitcode',
         'source' : ['cxx.cpp'],
         'suite' : ['cpp'],
         'cpp_args' : [arg],
@@ -115,9 +117,38 @@ foreach test_name, extra_args : gmodule_tests
 
   test(test_name,
     exe,
+    protocol : extra_args.get('protocol', test_protocol),
     depends : depends,
     env : test_env,
     timeout : timeout,
     suite : suite,
   )
 endforeach
+
+if have_bash and have_pkg_config
+  modules = [
+    'gmodule-no-export-2.0',
+    'gmodule-export-2.0',
+    'gmodule-2.0',
+  ]
+
+  foreach module: modules
+    test(module + '-pkg-config',
+      bash,
+      args: [
+        '-xe', '-c',
+        '\n'.join([
+          'pkg-config --validate ' + module,
+          'test "$(pkg-config --modversion @0@)" = "@1@"'.format(
+            module, glib_version),
+          'test "$(pkg-config --variable=prefix @0@)" = "@1@"'.format(
+            module, get_option('prefix')),
+        ]),
+      ],
+      suite: ['gmodule', 'no-valgrind', 'pkg-config'],
+      env: {
+        'PKG_CONFIG_PATH': meson.project_build_root() / 'meson-private',
+      },
+    )
+  endforeach
+endif

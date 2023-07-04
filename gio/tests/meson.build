@@ -145,14 +145,16 @@ gio_tests = {
 if have_cxx
   gio_tests += {
     'cxx' : {
+      'protocol': 'exitcode',
       'source' : ['cxx.cpp'],
-      'suite': ['C++'],
+      'suite': ['cpp'],
     },
   }
 
   foreach std, arg: cxx_standards
     gio_tests += {
       'cxx-@0@'.format(std) : {
+        'protocol': 'exitcode',
         'source' : ['cxx.cpp'],
         'suite' : ['cpp'],
         'cpp_args' : [arg],
@@ -169,7 +171,11 @@ test_extra_programs = {
 
 python_tests = {
   # FIXME: https://gitlab.gnome.org/GNOME/glib/-/issues/2764
-  'codegen.py' : { 'can_fail' : host_system == 'freebsd' },
+  'codegen.py' : {
+    'can_fail' : host_system == 'freebsd',
+    'suite': ['gdbus-codegen', 'slow'],
+    'timeout': 90,
+  },
 }
 
 test_env = environment()
@@ -457,6 +463,7 @@ if host_machine.system() != 'windows'
       'gdbus-test-codegen' : {
         'extra_sources' : [extra_sources, gdbus_test_codegen_generated, gdbus_test_codegen_generated_interface_info],
         'c_args' : ['-DGLIB_VERSION_MIN_REQUIRED=GLIB_VERSION_2_32'],
+        'suite': ['gdbus-codegen'],
       },
       'gdbus-threading' : {
         'extra_sources' : extra_sources,
@@ -475,11 +482,13 @@ if host_machine.system() != 'windows'
         'extra_sources' : [extra_sources, gdbus_test_codegen_generated, gdbus_test_codegen_generated_interface_info],
         'c_args' : ['-DGLIB_VERSION_MIN_REQUIRED=GLIB_VERSION_2_36',
                     '-DGLIB_VERSION_MAX_ALLOWED=GLIB_VERSION_2_36'],
+        'suite': ['gdbus-codegen'],
       },
       'gdbus-test-codegen-min-required-2-64' : {
         'source' : 'gdbus-test-codegen.c',
         'extra_sources' : [extra_sources, gdbus_test_codegen_generated_min_required_2_64, gdbus_test_codegen_generated_interface_info],
         'c_args' : ['-DGLIB_VERSION_MIN_REQUIRED=GLIB_VERSION_2_64'],
+        'suite': ['gdbus-codegen'],
       },
       'gapplication' : {
         'extra_sources' : extra_sources,
@@ -589,8 +598,8 @@ test_extra_programs += {
   'proxy' : {'install' : false},
   'resolver' : {'install' : false},
   'send-data' : {'install' : false},
-  'socket-server' : {'install' : false},
-  'socket-client' : {
+  'socket-testserver' : {'install' : false},
+  'socket-testclient' : {
     'extra_sources' : ['gtlsconsoleinteraction.c'],
     'install' : false,
   },
@@ -766,7 +775,7 @@ if not meson.is_cross_build()
 
     resource_plugin += shared_module('resourceplugin',
       sources: ['resourceplugin.c', plugin_resources_c],
-      link_args : export_dynamic_ldflags,
+      c_args : export_dynamic_cflags,
       dependencies : common_gio_tests_deps,
       install_dir : installed_tests_execdir,
       install_tag : 'tests',
@@ -927,12 +936,8 @@ if not meson.is_cross_build()
     test_resources_binary = custom_target('test_resources.o',
       input : test_gresource_binary,
       output : 'test_resources.o',
-      command : [ld,
-                 '-z', 'noexecstack',
-                 '-r',
-                 '-b','binary',
-                 '@INPUT@',
-                 '-o','@OUTPUT@'])
+      command : cc.cmd_array() + ['-Wl,-z,noexecstack', '-r', '-Wl,-b,binary',
+                                  '-nostdlib', '@INPUT@', '-o','@OUTPUT@'])
 
     # Rename symbol to match the one in the C file
     if cc.get_id() == 'gcc' and host_system == 'windows'
@@ -944,7 +949,7 @@ if not meson.is_cross_build()
       input : test_resources_binary,
       output : 'test_resources2.o',
       command : [objcopy,
-                 '--strip-all',
+                 '--strip-debug',
                  '--add-symbol', underscore + '_g_binary_test1_resource_data=.data:0',
                  '@INPUT@',
                  '@OUTPUT@'])
@@ -1036,6 +1041,7 @@ foreach test_name, extra_args : gio_tests
   endif
 
   test(test_name, exe,
+    protocol : extra_args.get('protocol', test_protocol),
     env : local_test_env,
     timeout : timeout,
     suite : suite,
@@ -1047,7 +1053,7 @@ endforeach
 
 foreach test_name, extra_args : python_tests
   depends = [extra_args.get('depends', [])]
-  suite = ['gio', 'no-valgrind']
+  suite = ['gio', 'no-valgrind'] + extra_args.get('suite', [])
 
   if extra_args.get('can_fail', false)
     suite += 'failing'
@@ -1060,9 +1066,11 @@ foreach test_name, extra_args : python_tests
   test(
     test_name,
     python,
+    protocol : extra_args.get('protocol', test_protocol),
     depends: depends,
     args: ['-B', files(test_name)],
     env: test_env,
+    timeout: extra_args.get('timeout'),
     suite: suite,
   )
 
@@ -1094,6 +1102,74 @@ if installed_tests_enabled
     files('taptestrunner.py'),
     install_dir: installed_tests_execdir,
     install_tag: 'tests',
+  )
+endif
+
+if have_bash and have_pkg_config
+  prefix = get_option('prefix')
+  if prefix.endswith(':/')
+    prefix += '/'
+  endif
+
+  pkg_config_tests = [
+    'pkg-config --validate gio-2.0',
+    'test "$(pkg-config --modversion gio-2.0)" = "@0@"'.format(glib_version),
+    'test "$(pkg-config --variable=prefix gio-2.0)" = "@0@"'.format(
+      get_option('prefix')),
+    'test "$(pkg-config --variable=datadir gio-2.0)" = "@0@"'.format(
+      prefix / get_option('datadir')),
+    'test "$(pkg-config --variable=schemasdir gio-2.0)" = "@0@"'.format(
+      prefix / get_option('datadir') / schemas_subdir),
+    'test "$(pkg-config --variable=giomoduledir gio-2.0)" = "@0@"'.format(
+      get_option('gio_module_dir') != '' ?
+        prefix / get_option('gio_module_dir') :
+        prefix / get_option('libdir') / 'gio' / 'modules'),
+  ]
+
+  gio_binaries = [
+    'gio',
+    'gio-querymodules',
+    'glib-compile-schemas',
+    'glib-compile-resources',
+    'gdbus',
+    'gdbus-codegen',
+    'gresource',
+    'gsettings',
+  ]
+
+  foreach binary: gio_binaries
+    pkg_config_tests += [
+      'test "$(pkg-config --variable=@0@ gio-2.0)" = "@1@"'.format(
+        binary.underscorify(),
+        prefix / get_option('bindir') / binary)
+    ]
+  endforeach
+
+  test('gio-2.0-pkg-config',
+    bash,
+    args: [ '-xe', '-c', '\n'.join(pkg_config_tests) ],
+    suite: ['gio', 'no-valgrind', 'pkg-config'],
+    env: {
+      'PKG_CONFIG_PATH': meson.project_build_root() / 'meson-private',
+    },
+  )
+
+  platform_module = host_system == 'windows' ? 'gio-windows-2.0' : 'gio-unix-2.0'
+  pkg_config_tests = [
+    'pkg-config --validate ' + platform_module,
+    'test "$(pkg-config --modversion @0@)" = "@1@"'.format(platform_module,
+      glib_version),
+    'test "$(pkg-config --variable=prefix @0@)" = "@1@"'.format(platform_module,
+      get_option('prefix')),
+  ]
+
+  test(platform_module + '-pkg-config',
+    bash,
+    args: [ '-xe', '-c', '\n'.join(pkg_config_tests) ],
+    suite: ['gio', 'no-valgrind', 'pkg-config'],
+    env: {
+      'PKG_CONFIG_PATH': meson.project_build_root() / 'meson-private',
+    },
   )
 endif
 

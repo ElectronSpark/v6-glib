@@ -26,7 +26,7 @@ CCACHE_BASEDIR="$(pwd)"
 CCACHE_DIR="${CCACHE_BASEDIR}/_ccache"
 export CCACHE_BASEDIR CCACHE_DIR
 
-pip3 install --upgrade --user meson==0.60.3
+pip3 install --upgrade --user meson==1.0.0
 
 PATH="$(cygpath "$USERPROFILE")/.local/bin:$HOME/.local/bin:$PATH"
 DIR="$(pwd)"
@@ -54,8 +54,8 @@ if [[ "$CFLAGS" == *"-coverage"* ]]; then
         --output-file "${DIR}/_coverage/${CI_JOB_NAME}-baseline.lcov"
 fi
 
-meson test --timeout-multiplier "${MESON_TEST_TIMEOUT_MULTIPLIER}"
-meson test --timeout-multiplier "${MESON_TEST_TIMEOUT_MULTIPLIER}" \
+meson test -v --timeout-multiplier "${MESON_TEST_TIMEOUT_MULTIPLIER}"
+meson test -v --timeout-multiplier "${MESON_TEST_TIMEOUT_MULTIPLIER}" \
     --setup=unstable_tests --suite=failing --suite=flaky || true
 
 if [[ "$CFLAGS" == *"-coverage"* ]]; then

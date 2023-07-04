@@ -204,8 +204,10 @@ g_array_new (gboolean zero_terminated,
  * reference count of 1.
  *
  * This avoids having to copy the data manually, when it can just be
- * inherited. @data will eventually be freed using g_free(), so must
- * have been allocated with a suitable allocator.
+ * inherited.
+ * After this call, @data belongs to the #GArray and may no longer be
+ * modified by the caller. The memory of @data has to be dynamically
+ * allocated and will eventually be freed with g_free().
  *
  * In case the elements need to be cleared when the array is freed, use
  * g_array_set_clear_func() to set a #GDestroyNotify function to perform
@@ -252,8 +254,10 @@ g_array_new_take (gpointer  data,
  * and setting the reference count to 1.
  *
  * This avoids having to copy the data manually, when it can just be
- * inherited. @data will eventually be freed using g_free(), so must
- * have been allocated with a suitable allocator.
+ * inherited.
+ * After this call, @data belongs to the #GArray and may no longer be
+ * modified by the caller. The memory of @data has to be dynamically
+ * allocated and will eventually be freed with g_free().
  *
  * The length is calculated by iterating through @data until the first %NULL
  * element is found.
@@ -1026,7 +1030,7 @@ g_array_sort_with_data (GArray           *farray,
  *
  * This example defines a comparison function and search an element in a #GArray:
  * |[<!-- language="C" -->
- * static gint*
+ * static gint
  * cmpint (gconstpointer a, gconstpointer b)
  * {
  *   const gint *_a = a;
@@ -1275,8 +1279,10 @@ g_ptr_array_new (void)
  * Creates a new #GPtrArray with @data as pointers, @len as length and a
  * reference count of 1.
  *
- * This avoids having to copy such data manually. @data will eventually be
- * freed using g_free(), so must have been allocated with a suitable allocator.
+ * This avoids having to copy such data manually.
+ * After this call, @data belongs to the #GPtrArray and may no longer be
+ * modified by the caller. The memory of @data has to be dynamically
+ * allocated and will eventually be freed with g_free().
  *
  * It also sets @element_free_func for freeing each element when the array is
  * destroyed either via g_ptr_array_unref(), when g_ptr_array_free() is called
@@ -1321,8 +1327,10 @@ g_ptr_array_new_take (gpointer       *data,
  * Creates a new #GPtrArray with @data as pointers, computing the length of it
  * and setting the reference count to 1.
  *
- * This avoids having to copy such data manually. @data will eventually be
- * freed using g_free(), so must have been allocated with a suitable allocator.
+ * This avoids having to copy such data manually.
+ * After this call, @data belongs to the #GPtrArray and may no longer be
+ * modified by the caller. The memory of @data has to be dynamically
+ * allocated and will eventually be freed with g_free().
  *
  * The length is calculated by iterating through @data until the first %NULL
  * element is found.
@@ -1371,6 +1379,7 @@ ptr_array_new_from_array (gpointer       *data,
   GPtrArray *array;
   GRealPtrArray *rarray;
 
+  g_assert (data != NULL || len == 0);
   g_assert (len <= G_MAXUINT);
 
   array = ptr_array_new (len, element_free_func, null_terminated);
@@ -1381,10 +1390,13 @@ ptr_array_new_from_array (gpointer       *data,
       for (gsize i = 0; i < len; i++)
         rarray->pdata[i] = copy_func (data[i], copy_func_user_data);
     }
-  else
+  else if (len != 0)
     {
       memcpy (rarray->pdata, data, len * sizeof (gpointer));
     }
+
+  if (null_terminated && rarray->pdata != NULL)
+    rarray->pdata[len] = NULL;
 
   rarray->len = len;
 
@@ -1478,6 +1490,7 @@ g_ptr_array_new_from_null_terminated_array (gpointer       *data,
         len += 1;
     }
 
+  g_assert (data != NULL || len == 0);
   g_return_val_if_fail (len <= G_MAXUINT, NULL);
 
   return ptr_array_new_from_array (
@@ -2452,7 +2465,10 @@ g_ptr_array_insert (GPtrArray *array,
  *
  * Note that the comparison function for g_ptr_array_sort() doesn't
  * take the pointers from the array as arguments, it takes pointers to
- * the pointers in the array. Here is a full example of usage:
+ * the pointers in the array.
+ *
+ * Use g_ptr_array_sort_with_data() if you want to use normal
+ * #GCompareFuncs, otherwise here is a full example of use:
  *
  * |[<!-- language="C" -->
  * typedef struct
@@ -2509,7 +2525,10 @@ g_ptr_array_sort (GPtrArray    *array,
  *
  * Note that the comparison function for g_ptr_array_sort_with_data()
  * doesn't take the pointers from the array as arguments, it takes
- * pointers to the pointers in the array. Here is a full example of use:
+ * pointers to the pointers in the array.
+ *
+ * Use g_ptr_array_sort_with_data() if you want to use normal
+ * #GCompareDataFuncs, otherwise here is a full example of use:
  *
  * |[<!-- language="C" -->
  * typedef enum { SORT_NAME, SORT_SIZE } SortMode;
@@ -2571,6 +2590,80 @@ g_ptr_array_sort_with_data (GPtrArray        *array,
                        sizeof (gpointer),
                        compare_func,
                        user_data);
+}
+
+static inline gint
+compare_ptr_array_values (gconstpointer a, gconstpointer b, gpointer user_data)
+{
+  gconstpointer aa = *((gconstpointer *) a);
+  gconstpointer bb = *((gconstpointer *) b);
+  GCompareFunc compare_func = user_data;
+
+  return compare_func (aa, bb);
+}
+
+/**
+ * g_ptr_array_sort_values:
+ * @array: a #GPtrArray
+ * @compare_func: a #GCompareFunc comparison function
+ *
+ * Sorts the array, using @compare_func which should be a qsort()-style
+ * comparison function (returns less than zero for first arg is less
+ * than second arg, zero for equal, greater than zero if first arg is
+ * greater than second arg).
+ *
+ * This is guaranteed to be a stable sort.
+ *
+ * Since: 2.76
+ */
+void
+g_ptr_array_sort_values (GPtrArray    *array,
+                         GCompareFunc  compare_func)
+{
+  g_ptr_array_sort_with_data (array, compare_ptr_array_values, compare_func);
+}
+
+typedef struct
+{
+  GCompareDataFunc compare_func;
+  gpointer user_data;
+} GPtrArraySortValuesData;
+
+static inline gint
+compare_ptr_array_values_with_data (gconstpointer a,
+                                    gconstpointer b,
+                                    gpointer      user_data)
+{
+  gconstpointer aa = *((gconstpointer *) a);
+  gconstpointer bb = *((gconstpointer *) b);
+  GPtrArraySortValuesData *data = user_data;
+
+  return data->compare_func (aa, bb, data->user_data);
+}
+
+/**
+ * g_ptr_array_sort_values_with_data:
+ * @array: a #GPtrArray
+ * @compare_func: a #GCompareDataFunc comparison function
+ * @user_data: data to pass to @compare_func
+ *
+ * Like g_ptr_array_sort_values(), but the comparison function has an extra
+ * user data argument.
+ *
+ * This is guaranteed to be a stable sort.
+ *
+ * Since: 2.76
+ */
+void
+g_ptr_array_sort_values_with_data (GPtrArray        *array,
+                                   GCompareDataFunc  compare_func,
+                                   gpointer          user_data)
+{
+  g_ptr_array_sort_with_data (array, compare_ptr_array_values_with_data,
+                              &(GPtrArraySortValuesData){
+                                  .compare_func = compare_func,
+                                  .user_data = user_data,
+                              });
 }
 
 /**
@@ -2760,8 +2853,10 @@ g_byte_array_steal (GByteArray *array,
  * @data: (transfer full) (array length=len): byte data for the array
  * @len: length of @data
  *
- * Create byte array containing the data. The data will be owned by the array
- * and will be freed with g_free(), i.e. it could be allocated using g_strdup().
+ * Creates a byte array containing the @data.
+ * After this call, @data belongs to the #GByteArray and may no longer be
+ * modified by the caller. The memory of @data has to be dynamically
+ * allocated and will eventually be freed with g_free().
  *
  * Do not use it if @len is greater than %G_MAXUINT. #GByteArray
  * stores the length of its data in #guint, which may be shorter than

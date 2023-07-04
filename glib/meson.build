@@ -17,7 +17,7 @@ gversionmacros_h = custom_target(
   install_tag: 'devel',
 )
 
-gvisibility_h = custom_target(
+glib_visibility_h = custom_target(
   output: 'glib-visibility.h',
   command: [gen_visibility_macros, meson.project_version(), 'visibility-macros', 'GLIB', '@OUTPUT@'],
   install: true,
@@ -26,7 +26,7 @@ gvisibility_h = custom_target(
   install_tag: 'devel',
 )
 
-glib_built_headers = [gversionmacros_h, gvisibility_h]
+glib_built_headers = [gversionmacros_h, glib_visibility_h]
 glib_sources += glib_built_headers
 glib_c_args_internal = [
   '-DGLIB_COMPILATION',
@@ -150,6 +150,10 @@ glib_headers = files(
 )
 install_headers(glib_headers, install_dir : glib_includedir)
 
+if host_system == 'windows'
+  install_headers([ 'msvc_recommended_pragmas.h' ], install_dir : glib_includedir)
+endif
+
 # Expose as variable to be used by gobject-introspection
 # when it includes GLib as a subproject
 glib_unix_h = files('glib-unix.h')
@@ -205,6 +209,7 @@ glib_sub_headers = files(
   'gmessages.h',
   'gnode.h',
   'goption.h',
+  'gpathbuf.h',
   'gpattern.h',
   'gpoll.h',
   'gprimes.h',
@@ -293,6 +298,7 @@ glib_sources += files(
   'gmessages.c',
   'gnode.c',
   'goption.c',
+  'gpathbuf.c',
   'gpattern.c',
   'gpoll.c',
   'gprimes.c',
@@ -363,7 +369,7 @@ if host_system == 'windows'
     glib_sources += files('dirent/wdirent.c')
   endif
 else
-  glib_sources += files('glib-unix.c', 'gspawn.c', 'giounix.c')
+  glib_sources += files('glib-unix.c', 'glib-unixprivate.h', 'gspawn.c', 'giounix.c')
   platform_deps = []
 endif
 
@@ -438,10 +444,16 @@ pkg.generate(libglib,
   libraries_private : [win32_ldflags],
   subdirs : ['glib-2.0'],
   extra_cflags : ['-I${libdir}/glib-2.0/include'] + win32_cflags,
-  variables : ['bindir=' + join_paths('${prefix}', get_option('bindir')),
-               'glib_genmarshal=' + join_paths('${bindir}', 'glib-genmarshal'),
-               'gobject_query=' + join_paths('${bindir}', 'gobject-query'),
-               'glib_mkenums=' + join_paths('${bindir}', 'glib-mkenums')],
+  variables : [
+    'bindir=' + '${prefix}' / get_option('bindir'),
+    'datadir=' + '${prefix}' / get_option('datadir'),
+    'glib_genmarshal=' + '${bindir}' / 'glib-genmarshal',
+    'gobject_query=' + '${bindir}' / 'gobject-query',
+    'glib_mkenums=' + '${bindir}' / 'glib-mkenums',
+    'glib_valgrind_suppressions=' + '${datadir}' /
+      valgrind_suppression_file_install_subdir /
+      fs.name(valgrind_suppression_file),
+  ],
   version : glib_version,
   install_dir : glib_pkgconfigreldir,
   filebase : 'glib-2.0',
@@ -482,6 +494,9 @@ else
     c_args : ['-UG_DISABLE_ASSERT'],
     include_directories : configinc,
     dependencies : [libglib_dep])
+
+  # Provide tools for others when we're a subproject and they use the Meson GNOME module
+  meson.override_find_program('gtester', gtester)
 endif
 
 report_conf = configuration_data()

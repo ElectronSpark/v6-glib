@@ -44,7 +44,7 @@
  * @see_also: #GParamSpecObject, g_param_spec_object()
  *
  * GObject is the fundamental type providing the common attributes and
- * methods for all object types in GTK+, Pango and other libraries
+ * methods for all object types in GTK, Pango and other libraries
  * based on GObject.  The GObject class provides methods for object
  * construction and destruction, property access methods, and signal
  * support.  Signals are described in detail [here][gobject-Signals].
@@ -135,7 +135,6 @@
  *   g_object_unref (object); // release previously acquired reference
  * ]|
  */
-
 
 /* --- macros --- */
 #define PARAM_SPEC_PARAM_ID(pspec)		((pspec)->param_id)
@@ -3436,16 +3435,20 @@ object_floating_flag_handler (GObject        *object,
     {
       gpointer oldvalue;
     case +1:    /* force floating if possible */
-      do
-        oldvalue = g_atomic_pointer_get (&object->qdata);
-      while (!g_atomic_pointer_compare_and_exchange ((void**) &object->qdata, oldvalue,
-                                                     (gpointer) ((gsize) oldvalue | OBJECT_FLOATING_FLAG)));
+      oldvalue = g_atomic_pointer_get (&object->qdata);
+      while (!g_atomic_pointer_compare_and_exchange_full (
+        (void**) &object->qdata, oldvalue,
+        (void *) ((gsize) oldvalue | OBJECT_FLOATING_FLAG),
+        &oldvalue))
+        ;
       return (gsize) oldvalue & OBJECT_FLOATING_FLAG;
     case -1:    /* sink if possible */
-      do
-        oldvalue = g_atomic_pointer_get (&object->qdata);
-      while (!g_atomic_pointer_compare_and_exchange ((void**) &object->qdata, oldvalue,
-                                                     (gpointer) ((gsize) oldvalue & ~(gsize) OBJECT_FLOATING_FLAG)));
+      oldvalue = g_atomic_pointer_get (&object->qdata);
+      while (!g_atomic_pointer_compare_and_exchange_full (
+        (void**) &object->qdata, oldvalue,
+        (void *) ((gsize) oldvalue & ~(gsize) OBJECT_FLOATING_FLAG),
+        &oldvalue))
+        ;
       return (gsize) oldvalue & OBJECT_FLOATING_FLAG;
     default:    /* check floating */
       return 0 != ((gsize) g_atomic_pointer_get (&object->qdata) & OBJECT_FLOATING_FLAG);
@@ -4569,7 +4572,7 @@ g_value_take_object (GValue  *value,
  * 
  * Get the contents of a %G_TYPE_OBJECT derived #GValue.
  * 
- * Returns: (type GObject.Object) (transfer none): object contents of @value
+ * Returns: (type GObject.Object) (transfer none) (nullable): object contents of @value
  */
 gpointer
 g_value_get_object (const GValue *value)
@@ -4587,7 +4590,7 @@ g_value_get_object (const GValue *value)
  * its reference count. If the contents of the #GValue are %NULL, then
  * %NULL will be returned.
  *
- * Returns: (type GObject.Object) (transfer full): object content of @value,
+ * Returns: (type GObject.Object) (transfer full) (nullable): object content of @value,
  *          should be unreferenced when no longer needed.
  */
 gpointer

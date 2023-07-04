@@ -87,6 +87,20 @@
  * be at least three characters long. There is no upper length limit. The first
  * character must be a letter (a–z or A–Z) or an underscore (‘_’). Subsequent
  * characters can be letters, numbers or any of ‘-_+’.
+ *
+ * # Runtime Debugging
+ *
+ * When `G_ENABLE_DEBUG` is defined during compilation, the GObject library
+ * supports an environment variable `GOBJECT_DEBUG` that can be set to a
+ * combination of flags to trigger debugging messages about
+ * object bookkeeping and signal emissions during runtime.
+ *
+ * The currently supported flags are:
+ *  - `objects`: Tracks all #GObject instances in a global hash table called
+ *    `debug_objects_ht`, and prints the still-alive objects on exit.
+ *  - `instance-count`: Tracks the number of instances of every #GType and makes
+ *    it available via the g_type_get_instance_count() function.
+ *  - `signals`: Currently unused.
  */
 
 
@@ -356,7 +370,6 @@ struct _InstanceData
   gpointer           class;
   guint16            instance_size;
   guint16            private_size;
-  guint16            n_preallocs;
   GInstanceInitFunc  instance_init;
 };
 
@@ -915,7 +928,7 @@ check_type_info_I (TypeNode        *pnode,
   
   /* check instance members */
   if (!(finfo->type_flags & G_TYPE_FLAG_INSTANTIATABLE) &&
-      (info->instance_size || info->n_preallocs || info->instance_init))
+      (info->instance_size || info->instance_init))
     {
       if (pnode)
 	g_critical ("cannot instantiate '%s', derived from non-instantiatable parent type '%s'",
@@ -1158,7 +1171,6 @@ type_data_make_W (TypeNode              *node,
       data->instance.class_private_size = 0;
       if (pnode)
         data->instance.class_private_size = pnode->data->instance.class_private_size;
-      data->instance.n_preallocs = MIN (info->n_preallocs, 1024);
       data->instance.instance_init = info->instance_init;
     }
   else if (node->is_classed) /* only classed */
@@ -1874,18 +1886,6 @@ maybe_issue_deprecation_warning (GType type)
                name);
 }
 
-/* We use the system allocator on UNIX-y systems, where we know we have
- * access to a decent allocator. On other systems, we fall back to the
- * slice allocator, as we know its performance profile
- */
-#ifdef G_OS_UNIX
-# define instance_alloc(s)  g_malloc0 ((s))
-# define instance_free(s,p) g_free ((p))
-#else
-# define instance_alloc(s)  g_slice_alloc0 ((s))
-# define instance_free(s,p) g_slice_free1 ((s),(p))
-#endif
-
 /**
  * g_type_create_instance: (skip)
  * @type: an instantiatable type to create an instance for
@@ -1966,7 +1966,7 @@ g_type_create_instance (GType type)
       private_size += ALIGN_STRUCT (1);
 
       /* Allocate one extra pointer size... */
-      allocated = instance_alloc (private_size + ivar_size + sizeof (gpointer));
+      allocated = g_malloc0 (private_size + ivar_size + sizeof (gpointer));
       /* ... and point it back to the start of the private data. */
       *(gpointer *) (allocated + private_size + ivar_size) = allocated + ALIGN_STRUCT (1);
 
@@ -1976,7 +1976,7 @@ g_type_create_instance (GType type)
     }
   else
 #endif
-    allocated = instance_alloc (private_size + ivar_size);
+    allocated = g_malloc0 (private_size + ivar_size);
 
   instance = (GTypeInstance *) (allocated + private_size);
 
@@ -2066,14 +2066,14 @@ g_type_free_instance (GTypeInstance *instance)
       /* Clear out the extra pointer... */
       *(gpointer *) (allocated + private_size + ivar_size) = NULL;
       /* ... and ensure we include it in the size we free. */
-      instance_free (private_size + ivar_size + sizeof (gpointer), allocated);
+      g_free_sized (allocated, private_size + ivar_size + sizeof (gpointer));
 
       VALGRIND_FREELIKE_BLOCK (allocated + ALIGN_STRUCT (1), 0);
       VALGRIND_FREELIKE_BLOCK (instance, 0);
     }
   else
 #endif
-    instance_free (private_size + ivar_size, allocated);
+    g_free_sized (allocated, private_size + ivar_size);
 
 #ifdef	G_ENABLE_DEBUG
   IF_DEBUG (INSTANCE_COUNT)
@@ -3439,7 +3439,7 @@ g_type_default_interface_unref (gpointer g_iface)
  * other validly registered type ID, but randomized type IDs should
  * not be passed in and will most likely lead to a crash.
  *
- * Returns: static type name or %NULL
+ * Returns: (nullable): static type name or %NULL
  */
 const gchar *
 g_type_name (GType type)
@@ -3967,8 +3967,8 @@ g_type_query (GType       type,
  *
  * Returns the number of instances allocated of the particular type;
  * this is only available if GLib is built with debugging support and
- * the instance_count debug flag is set (by setting the GOBJECT_DEBUG
- * variable to include instance-count).
+ * the `instance-count` debug flag is set (by setting the `GOBJECT_DEBUG`
+ * variable to include `instance-count`).
  *
  * Returns: the number of instances allocated of the given type;
  *   if instance counts are not available, returns 0.
@@ -4161,7 +4161,7 @@ g_type_check_instance_is_a (GTypeInstance *type_instance,
     return FALSE;
 
   iface = lookup_type_node_I (iface_type);
-  if (iface->is_final)
+  if (iface && iface->is_final)
     return type_instance->g_class->g_type == iface_type;
 
   node = lookup_type_node_I (type_instance->g_class->g_type);
@@ -4482,7 +4482,7 @@ _g_type_boxed_init (GType          type,
  * flags.  Since GLib 2.36, the type system is initialised automatically
  * and this function does nothing.
  *
- * If you need to enable debugging features, use the GOBJECT_DEBUG
+ * If you need to enable debugging features, use the `GOBJECT_DEBUG`
  * environment variable.
  *
  * Deprecated: 2.36: the type system is now initialised automatically

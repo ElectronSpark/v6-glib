@@ -268,7 +268,7 @@ G_BEGIN_DECLS
  * 
  * Checks if @type is a fundamental type.
  *
- * Returns: %TRUE on success
+ * Returns: %TRUE is @type is fundamental
  */
 #define G_TYPE_IS_FUNDAMENTAL(type)             ((type) <= G_TYPE_FUNDAMENTAL_MAX)
 /**
@@ -279,7 +279,7 @@ G_BEGIN_DECLS
  * inherited) from another type (this holds true for all non-fundamental
  * types).
  *
- * Returns: %TRUE on success
+ * Returns: %TRUE if @type is derived
  */
 #define G_TYPE_IS_DERIVED(type)                 ((type) > G_TYPE_FUNDAMENTAL_MAX)
 /**
@@ -295,7 +295,7 @@ G_BEGIN_DECLS
  * with the difference that GType interfaces are not derivable (but see
  * g_type_interface_add_prerequisite() for an alternative).
  *
- * Returns: %TRUE on success
+ * Returns: %TRUE if @type is an interface
  */
 #define G_TYPE_IS_INTERFACE(type)               (G_TYPE_FUNDAMENTAL (type) == G_TYPE_INTERFACE)
 /**
@@ -304,7 +304,16 @@ G_BEGIN_DECLS
  * 
  * Checks if @type is a classed type.
  *
- * Returns: %TRUE on success
+ * A classed type has an associated #GTypeClass which can be derived to store
+ * class-wide virtual function pointers and data for all instances of the type.
+ * This allows for subclassing. All #GObjects are classed; none of the scalar
+ * fundamental types built into GLib are classed.
+ *
+ * Interfaces are not classed: while their #GTypeInterface struct could be
+ * considered similar to #GTypeClass, and classes can derive interfaces,
+ * #GTypeInterface doesn’t allow for subclassing.
+ *
+ * Returns: %TRUE if @type is classed
  */
 #define G_TYPE_IS_CLASSED(type)                 (g_type_test_flags ((type), G_TYPE_FLAG_CLASSED))
 /**
@@ -314,7 +323,7 @@ G_BEGIN_DECLS
  * Checks if @type can be instantiated.  Instantiation is the
  * process of creating an instance (object) of this type.
  *
- * Returns: %TRUE on success
+ * Returns: %TRUE if @type is instantiatable
  */
 #define G_TYPE_IS_INSTANTIATABLE(type)          (g_type_test_flags ((type), G_TYPE_FLAG_INSTANTIATABLE))
 /**
@@ -324,7 +333,7 @@ G_BEGIN_DECLS
  * Checks if @type is a derivable type.  A derivable type can
  * be used as the base class of a flat (single-level) class hierarchy.
  *
- * Returns: %TRUE on success
+ * Returns: %TRUE if @type is derivable
  */
 #define G_TYPE_IS_DERIVABLE(type)               (g_type_test_flags ((type), G_TYPE_FLAG_DERIVABLE))
 /**
@@ -334,7 +343,7 @@ G_BEGIN_DECLS
  * Checks if @type is a deep derivable type.  A deep derivable type
  * can be used as the base class of a deep (multi-level) class hierarchy.
  *
- * Returns: %TRUE on success
+ * Returns: %TRUE if @type is deep derivable
  */
 #define G_TYPE_IS_DEEP_DERIVABLE(type)          (g_type_test_flags ((type), G_TYPE_FLAG_DEEP_DERIVABLE))
 /**
@@ -345,7 +354,7 @@ G_BEGIN_DECLS
  * instantiated and is normally used as an abstract base class for
  * derived classes.
  *
- * Returns: %TRUE on success
+ * Returns: %TRUE if @type is abstract
  */
 #define G_TYPE_IS_ABSTRACT(type)                (g_type_test_flags ((type), G_TYPE_FLAG_ABSTRACT))
 /**
@@ -356,7 +365,7 @@ G_BEGIN_DECLS
  * a value table, but can't be used for g_value_init() and is normally used as
  * an abstract base type for derived value types.
  *
- * Returns: %TRUE on success
+ * Returns: %TRUE if @type is an abstract value type
  */
 #define G_TYPE_IS_VALUE_ABSTRACT(type)          (g_type_test_flags ((type), G_TYPE_FLAG_VALUE_ABSTRACT))
 /**
@@ -365,7 +374,7 @@ G_BEGIN_DECLS
  * 
  * Checks if @type is a value type and can be used with g_value_init(). 
  *
- * Returns: %TRUE on success
+ * Returns: %TRUE if @type is a value type
  */
 #define G_TYPE_IS_VALUE_TYPE(type)              (g_type_check_is_value_type (type))
 /**
@@ -374,7 +383,7 @@ G_BEGIN_DECLS
  * 
  * Checks if @type has a #GTypeValueTable.
  *
- * Returns: %TRUE on success
+ * Returns: %TRUE if @type has a value table
  */
 #define G_TYPE_HAS_VALUE_TABLE(type)            (g_type_value_table_peek (type) != NULL)
 /**
@@ -384,7 +393,7 @@ G_BEGIN_DECLS
  * Checks if @type is a final type. A final type cannot be derived any
  * further.
  *
- * Returns: %TRUE on success
+ * Returns: %TRUE if @type is final
  *
  * Since: 2.70
  */
@@ -497,7 +506,7 @@ struct _GTypeQuery
  * 
  * This macro should only be used in type implementations.
  *
- * Returns: %TRUE on success
+ * Returns: %TRUE if @instance is valid
  */
 #define G_TYPE_CHECK_INSTANCE(instance)				(_G_TYPE_CHI ((GTypeInstance*) (instance)))
 /**
@@ -525,7 +534,7 @@ struct _GTypeQuery
  * 
  * This macro should only be used in type implementations.
  *
- * Returns: %TRUE on success
+ * Returns: %TRUE if @instance is an instance of @g_type
  */
 #define G_TYPE_CHECK_INSTANCE_TYPE(instance, g_type)            (_G_TYPE_CIT ((instance), (g_type)))
 /**
@@ -538,7 +547,7 @@ struct _GTypeQuery
  *
  * This macro should only be used in type implementations.
  *
- * Returns: %TRUE on success
+ * Returns: %TRUE if @instance is an instance of @g_type
  */
 #define G_TYPE_CHECK_INSTANCE_FUNDAMENTAL_TYPE(instance, g_type)            (_G_TYPE_CIFT ((instance), (g_type)))
 /**
@@ -594,7 +603,7 @@ struct _GTypeQuery
  * 
  * This macro should only be used in type implementations.
  *
- * Returns: %TRUE on success
+ * Returns: %TRUE if @g_class is a class structure of @g_type
  */
 #define G_TYPE_CHECK_CLASS_TYPE(g_class, g_type)                (_G_TYPE_CCT ((g_class), (g_type)))
 /**
@@ -606,7 +615,7 @@ struct _GTypeQuery
  * 
  * This macro should only be used in type implementations.
  *
- * Returns: %TRUE on success
+ * Returns: %TRUE if @value is initialized
  */
 #define G_TYPE_CHECK_VALUE(value)				(_G_TYPE_CHV ((value)))
 /**
@@ -619,7 +628,7 @@ struct _GTypeQuery
  * 
  * This macro should only be used in type implementations.
  *
- * Returns: %TRUE on success
+ * Returns: %TRUE if @value has been initialized to hold values of type @g_type
  */
 #define G_TYPE_CHECK_VALUE_TYPE(value, g_type)			(_G_TYPE_CVH ((value), (g_type)))
 /**
@@ -705,7 +714,7 @@ struct _GTypeQuery
  * These flags used to be passed to g_type_init_with_debug_flags() which
  * is now deprecated.
  *
- * If you need to enable debugging features, use the GOBJECT_DEBUG
+ * If you need to enable debugging features, use the `GOBJECT_DEBUG`
  * environment variable.
  *
  * Deprecated: 2.36: g_type_init() is now done automatically
@@ -1093,7 +1102,7 @@ typedef enum    /*< skip >*/
  *  finalization function for interface types. (optional)
  * @class_data: User-supplied data passed to the class init/finalize functions
  * @instance_size: Size of the instance (object) structure (required for instantiatable types only)
- * @n_preallocs: Prior to GLib 2.10, it specified the number of pre-allocated (cached) instances to reserve memory for (0 indicates no caching). Since GLib 2.10, it is ignored, since instances are allocated with the [slice allocator][glib-Memory-Slices] now.
+ * @n_preallocs: Prior to GLib 2.10, it specified the number of pre-allocated (cached) instances to reserve memory for (0 indicates no caching). Since GLib 2.10 this field is ignored.
  * @instance_init: Location of the instance initialization function (optional, for instantiatable types only)
  * @value_table: A #GTypeValueTable function table for generic handling of GValues
  *  of this type (usually only useful for fundamental types)
@@ -1155,179 +1164,291 @@ struct _GInterfaceInfo
   GInterfaceFinalizeFunc interface_finalize;
   gpointer               interface_data;
 };
+
+/**
+ * GTypeValueInitFunc:
+ * @value: the value to initialize
+ *
+ * Initializes the value contents by setting the fields of the `value->data`
+ * array.
+ *
+ * The data array of the #GValue passed into this function was zero-filled
+ * with `memset()`, so no care has to be taken to free any old contents.
+ * For example, in the case of a string value that may never be %NULL, the
+ * implementation might look like:
+ *
+ * |[<!-- language="C" -->
+ * value->data[0].v_pointer = g_strdup ("");
+ * ]|
+ *
+ * Since: 2.78
+ */
+GOBJECT_AVAILABLE_TYPE_IN_2_78
+typedef void (* GTypeValueInitFunc) (GValue *value);
+
+/**
+ * GTypeValueFreeFunc:
+ * @value: the value to free
+ *
+ * Frees any old contents that might be left in the `value->data` array of
+ * the given value.
+ *
+ * No resources may remain allocated through the #GValue contents after this
+ * function returns. E.g. for our above string type:
+ *
+ * |[<!-- language="C" -->
+ * // only free strings without a specific flag for static storage
+ * if (!(value->data[1].v_uint & G_VALUE_NOCOPY_CONTENTS))
+ *   g_free (value->data[0].v_pointer);
+ * ]|
+ *
+ * Since: 2.78
+ */
+GOBJECT_AVAILABLE_TYPE_IN_2_78
+typedef void (* GTypeValueFreeFunc) (GValue *value);
+
+/**
+ * GTypeValueCopyFunc:
+ * @src_value: the value to copy
+ * @dest_value: (out): the location of the copy
+ *
+ * Copies the content of a #GValue into another.
+ *
+ * The @dest_value is a #GValue with zero-filled data section and @src_value
+ * is a properly initialized #GValue of same type, or derived type.
+ *
+ * The purpose of this function is to copy the contents of @src_value
+ * into @dest_value in a way, that even after @src_value has been freed, the
+ * contents of @dest_value remain valid. String type example:
+ *
+ * |[<!-- language="C" -->
+ * dest_value->data[0].v_pointer = g_strdup (src_value->data[0].v_pointer);
+ * ]|
+ *
+ * Since: 2.78
+ */
+GOBJECT_AVAILABLE_TYPE_IN_2_78
+typedef void (* GTypeValueCopyFunc) (const GValue *src_value,
+                                     GValue       *dest_value);
+
+/**
+ * GTypeValuePeekPointerFunc:
+ * @value: the value to peek
+ *
+ * If the value contents fit into a pointer, such as objects or strings,
+ * return this pointer, so the caller can peek at the current contents.
+ *
+ * To extend on our above string example:
+ *
+ * |[<!-- language="C" -->
+ * return value->data[0].v_pointer;
+ * ]|
+ *
+ * Returns: (transfer none): a pointer to the value contents
+ *
+ * Since: 2.78
+ */
+GOBJECT_AVAILABLE_TYPE_IN_2_78
+typedef gpointer (* GTypeValuePeekPointerFunc) (const GValue *value);
+
+/**
+ * GTypeValueCollectFunc:
+ * @value: the value to initialize
+ * @n_collect_values: the number of collected values
+ * @collect_values: (array length=n_collect_values): the collected values
+ * @collect_flags: optional flags
+ *
+ * This function is responsible for converting the values collected from
+ * a variadic argument list into contents suitable for storage in a #GValue.
+ *
+ * This function should setup @value similar to #GTypeValueInitFunc; e.g.
+ * for a string value that does not allow `NULL` pointers, it needs to either
+ * emit an error, or do an implicit conversion by storing an empty string.
+ *
+ * The @value passed in to this function has a zero-filled data array, so
+ * just like for #GTypeValueInitFunc it is guaranteed to not contain any old
+ * contents that might need freeing.
+ *
+ * The @n_collect_values argument is the string length of the `collect_format`
+ * field of #GTypeValueTable, and `collect_values` is an array of #GTypeCValue
+ * with length of @n_collect_values, containing the collected values according
+ * to `collect_format`.
+ *
+ * The @collect_flags argument provided as a hint by the caller. It may
+ * contain the flag %G_VALUE_NOCOPY_CONTENTS indicating that the collected
+ * value contents may be considered ‘static’ for the duration of the @value
+ * lifetime. Thus an extra copy of the contents stored in @collect_values is
+ * not required for assignment to @value.
+ *
+ * For our above string example, we continue with:
+ *
+ * |[<!-- language="C" -->
+ * if (!collect_values[0].v_pointer)
+ *   value->data[0].v_pointer = g_strdup ("");
+ * else if (collect_flags & G_VALUE_NOCOPY_CONTENTS)
+ *   {
+ *     value->data[0].v_pointer = collect_values[0].v_pointer;
+ *     // keep a flag for the value_free() implementation to not free this string
+ *     value->data[1].v_uint = G_VALUE_NOCOPY_CONTENTS;
+ *   }
+ * else
+ *   value->data[0].v_pointer = g_strdup (collect_values[0].v_pointer);
+ * return NULL;
+ * ]|
+ *
+ * It should be noted, that it is generally a bad idea to follow the
+ * %G_VALUE_NOCOPY_CONTENTS hint for reference counted types. Due to
+ * reentrancy requirements and reference count assertions performed
+ * by the signal emission code, reference counts should always be
+ * incremented for reference counted contents stored in the `value->data`
+ * array. To deviate from our string example for a moment, and taking
+ * a look at an exemplary implementation for `GTypeValueTable.collect_value()`
+ * of `GObject`:
+ *
+ * |[<!-- language="C" -->
+ * GObject *object = G_OBJECT (collect_values[0].v_pointer);
+ * g_return_val_if_fail (object != NULL,
+ *    g_strdup_printf ("Object %p passed as invalid NULL pointer", object));
+ * // never honour G_VALUE_NOCOPY_CONTENTS for ref-counted types
+ * value->data[0].v_pointer = g_object_ref (object);
+ * return NULL;
+ * ]|
+ *
+ * The reference count for valid objects is always incremented, regardless
+ * of `collect_flags`. For invalid objects, the example returns a newly
+ * allocated string without altering `value`.
+ *
+ * Upon success, `collect_value()` needs to return `NULL`. If, however,
+ * an error condition occurred, `collect_value()` should return a newly
+ * allocated string containing an error diagnostic.
+ *
+ * The calling code makes no assumptions about the `value` contents being
+ * valid upon error returns, `value` is simply thrown away without further
+ * freeing. As such, it is a good idea to not allocate `GValue` contents
+ * prior to returning an error; however, `collect_values()` is not obliged
+ * to return a correctly setup @value for error returns, simply because
+ * any non-`NULL` return is considered a fatal programming error, and
+ * further program behaviour is undefined.
+ *
+ * Returns: (transfer full) (nullable): `NULL` on success, otherwise a
+ *   newly allocated error string on failure
+ *
+ * Since: 2.78
+ */
+GOBJECT_AVAILABLE_TYPE_IN_2_78
+typedef gchar * (* GTypeValueCollectFunc) (GValue      *value,
+                                           guint        n_collect_values,
+                                           GTypeCValue *collect_values,
+                                           guint        collect_flags);
+
+/**
+ * GTypeValueLCopyFunc:
+ * @value: the value to lcopy
+ * @n_collect_values: the number of collected values
+ * @collect_values: (array length=n_collect_values): the collected
+ *   locations for storage
+ * @collect_flags: optional flags
+ *
+ * This function is responsible for storing the `value`
+ * contents into arguments passed through a variadic argument list which
+ * got collected into `collect_values` according to `lcopy_format`.
+ *
+ * The `n_collect_values` argument equals the string length of
+ * `lcopy_format`, and `collect_flags` may contain %G_VALUE_NOCOPY_CONTENTS.
+ *
+ * In contrast to #GTypeValueCollectFunc, this function is obliged to always
+ * properly support %G_VALUE_NOCOPY_CONTENTS.
+ *
+ * Similar to #GTypeValueCollectFunc the function may prematurely abort by
+ * returning a newly allocated string describing an error condition. To
+ * complete the string example:
+ *
+ * |[<!-- language="C" -->
+ * gchar **string_p = collect_values[0].v_pointer;
+ * g_return_val_if_fail (string_p != NULL,
+ *   g_strdup ("string location passed as NULL"));
+ *
+ * if (collect_flags & G_VALUE_NOCOPY_CONTENTS)
+ *   *string_p = value->data[0].v_pointer;
+ * else
+ *   *string_p = g_strdup (value->data[0].v_pointer);
+ * ]|
+ *
+ * And an illustrative version of this function for reference-counted
+ * types:
+ *
+ * |[<!-- language="C" -->
+ * GObject **object_p = collect_values[0].v_pointer;
+ * g_return_val_if_fail (object_p != NULL,
+ *   g_strdup ("object location passed as NULL"));
+ *
+ * if (value->data[0].v_pointer == NULL)
+ *   *object_p = NULL;
+ * else if (collect_flags & G_VALUE_NOCOPY_CONTENTS) // always honour
+ *   *object_p = value->data[0].v_pointer;
+ * else
+ *   *object_p = g_object_ref (value->data[0].v_pointer);
+ *
+ * return NULL;
+ * ]|
+ *
+ * Returns: (transfer full) (nullable): `NULL` on success, otherwise
+ *   a newly allocated error string on failure
+ *
+ * Since: 2.78
+ */
+GOBJECT_AVAILABLE_TYPE_IN_2_78
+typedef gchar * (* GTypeValueLCopyFunc) (const GValue *value,
+                                         guint         n_collect_values,
+                                         GTypeCValue  *collect_values,
+                                         guint         collect_flags);
+
 /**
  * GTypeValueTable:
- * @value_init: Default initialize @values contents by poking values
- *  directly into the value->data array. The data array of
- *  the #GValue passed into this function was zero-filled
- *  with `memset()`, so no care has to be taken to free any
- *  old contents. E.g. for the implementation of a string
- *  value that may never be %NULL, the implementation might
- *  look like:
- *  |[<!-- language="C" -->
- *  value->data[0].v_pointer = g_strdup ("");
- *  ]|
- * @value_free: Free any old contents that might be left in the
- *  data array of the passed in @value. No resources may
- *  remain allocated through the #GValue contents after
- *  this function returns. E.g. for our above string type:
- *  |[<!-- language="C" -->
- *  // only free strings without a specific flag for static storage
- *  if (!(value->data[1].v_uint & G_VALUE_NOCOPY_CONTENTS))
- *    g_free (value->data[0].v_pointer);
- *  ]|
- * @value_copy: @dest_value is a #GValue with zero-filled data section
- *  and @src_value is a properly setup #GValue of same or
- *  derived type.
- *  The purpose of this function is to copy the contents of
- *  @src_value into @dest_value in a way, that even after
- *  @src_value has been freed, the contents of @dest_value
- *  remain valid. String type example:
- *  |[<!-- language="C" -->
- *  dest_value->data[0].v_pointer = g_strdup (src_value->data[0].v_pointer);
- *  ]|
- * @value_peek_pointer: If the value contents fit into a pointer, such as objects
- *  or strings, return this pointer, so the caller can peek at
- *  the current contents. To extend on our above string example:
- *  |[<!-- language="C" -->
- *  return value->data[0].v_pointer;
- *  ]|
+ * @value_init: Function to initialize a GValue
+ * @value_free: Function to free a GValue
+ * @value_copy: Function to copy a GValue
+ * @value_peek_pointer: Function to peek the contents of a GValue if they fit
+ *   into a pointer
  * @collect_format: A string format describing how to collect the contents of
- *  this value bit-by-bit. Each character in the format represents
- *  an argument to be collected, and the characters themselves indicate
- *  the type of the argument. Currently supported arguments are:
- *  - 'i' - Integers. passed as collect_values[].v_int.
- *  - 'l' - Longs. passed as collect_values[].v_long.
- *  - 'd' - Doubles. passed as collect_values[].v_double.
- *  - 'p' - Pointers. passed as collect_values[].v_pointer.
- *  It should be noted that for variable argument list construction,
- *  ANSI C promotes every type smaller than an integer to an int, and
- *  floats to doubles. So for collection of short int or char, 'i'
- *  needs to be used, and for collection of floats 'd'.
- * @collect_value: The collect_value() function is responsible for converting the
- *  values collected from a variable argument list into contents
- *  suitable for storage in a GValue. This function should setup
- *  @value similar to value_init(); e.g. for a string value that
- *  does not allow %NULL pointers, it needs to either spew an error,
- *  or do an implicit conversion by storing an empty string.
- *  The @value passed in to this function has a zero-filled data
- *  array, so just like for value_init() it is guaranteed to not
- *  contain any old contents that might need freeing.
- *  @n_collect_values is exactly the string length of @collect_format,
- *  and @collect_values is an array of unions #GTypeCValue with
- *  length @n_collect_values, containing the collected values
- *  according to @collect_format.
- *  @collect_flags is an argument provided as a hint by the caller.
- *  It may contain the flag %G_VALUE_NOCOPY_CONTENTS indicating,
- *  that the collected value contents may be considered "static"
- *  for the duration of the @value lifetime.
- *  Thus an extra copy of the contents stored in @collect_values is
- *  not required for assignment to @value.
- *  For our above string example, we continue with:
- *  |[<!-- language="C" -->
- *  if (!collect_values[0].v_pointer)
- *    value->data[0].v_pointer = g_strdup ("");
- *  else if (collect_flags & G_VALUE_NOCOPY_CONTENTS)
- *  {
- *    value->data[0].v_pointer = collect_values[0].v_pointer;
- *    // keep a flag for the value_free() implementation to not free this string
- *    value->data[1].v_uint = G_VALUE_NOCOPY_CONTENTS;
- *  }
- *  else
- *    value->data[0].v_pointer = g_strdup (collect_values[0].v_pointer);
- *  return NULL;
- *  ]|
- *  It should be noted, that it is generally a bad idea to follow the
- *  %G_VALUE_NOCOPY_CONTENTS hint for reference counted types. Due to
- *  reentrancy requirements and reference count assertions performed
- *  by the signal emission code, reference counts should always be
- *  incremented for reference counted contents stored in the value->data
- *  array.  To deviate from our string example for a moment, and taking
- *  a look at an exemplary implementation for collect_value() of
- *  #GObject:
- *  |[<!-- language="C" --> 
- *    GObject *object = G_OBJECT (collect_values[0].v_pointer);
- *    g_return_val_if_fail (object != NULL,
- *       g_strdup_printf ("Object passed as invalid NULL pointer"));
- *    // never honour G_VALUE_NOCOPY_CONTENTS for ref-counted types
- *    value->data[0].v_pointer = g_object_ref (object);
- *    return NULL;
- *  ]|
- *  The reference count for valid objects is always incremented,
- *  regardless of @collect_flags. For invalid objects, the example
- *  returns a newly allocated string without altering @value.
- *  Upon success, collect_value() needs to return %NULL. If, however,
- *  an error condition occurred, collect_value() may spew an
- *  error by returning a newly allocated non-%NULL string, giving
- *  a suitable description of the error condition.
- *  The calling code makes no assumptions about the @value
- *  contents being valid upon error returns, @value
- *  is simply thrown away without further freeing. As such, it is
- *  a good idea to not allocate #GValue contents, prior to returning
- *  an error, however, collect_values() is not obliged to return
- *  a correctly setup @value for error returns, simply because
- *  any non-%NULL return is considered a fatal condition so further
- *  program behaviour is undefined.
+ *   this value bit-by-bit. Each character in the format represents
+ *   an argument to be collected, and the characters themselves indicate
+ *   the type of the argument. Currently supported arguments are:
+ *    - `'i'`: Integers, passed as `collect_values[].v_int`
+ *    - `'l'`: Longs, passed as `collect_values[].v_long`
+ *    - `'d'`: Doubles, passed as `collect_values[].v_double`
+ *    - `'p'`: Pointers, passed as `collect_values[].v_pointer`
+ *   It should be noted that for variable argument list construction,
+ *   ANSI C promotes every type smaller than an integer to an int, and
+ *   floats to doubles. So for collection of short int or char, `'i'`
+ *   needs to be used, and for collection of floats `'d'`.
+ * @collect_value: Function to initialize a GValue from the values
+ *   collected from variadic arguments
  * @lcopy_format: Format description of the arguments to collect for @lcopy_value,
- *  analogous to @collect_format. Usually, @lcopy_format string consists
- *  only of 'p's to provide lcopy_value() with pointers to storage locations.
- * @lcopy_value: This function is responsible for storing the @value contents into
- *  arguments passed through a variable argument list which got
- *  collected into @collect_values according to @lcopy_format.
- *  @n_collect_values equals the string length of @lcopy_format,
- *  and @collect_flags may contain %G_VALUE_NOCOPY_CONTENTS.
- *  In contrast to collect_value(), lcopy_value() is obliged to
- *  always properly support %G_VALUE_NOCOPY_CONTENTS.
- *  Similar to collect_value() the function may prematurely abort
- *  by returning a newly allocated string describing an error condition.
- *  To complete the string example:
- *  |[<!-- language="C" -->
- *  gchar **string_p = collect_values[0].v_pointer;
- *  g_return_val_if_fail (string_p != NULL,
- *      g_strdup_printf ("string location passed as NULL"));
- *  if (collect_flags & G_VALUE_NOCOPY_CONTENTS)
- *    *string_p = value->data[0].v_pointer;
- *  else
- *    *string_p = g_strdup (value->data[0].v_pointer);
- *  ]|
- *  And an illustrative version of lcopy_value() for
- *  reference-counted types:
- *  |[<!-- language="C" -->
- *  GObject **object_p = collect_values[0].v_pointer;
- *  g_return_val_if_fail (object_p != NULL,
- *    g_strdup_printf ("object location passed as NULL"));
- *  if (!value->data[0].v_pointer)
- *    *object_p = NULL;
- *  else if (collect_flags & G_VALUE_NOCOPY_CONTENTS) // always honour
- *    *object_p = value->data[0].v_pointer;
- *  else
- *    *object_p = g_object_ref (value->data[0].v_pointer);
- *  return NULL;
- *  ]|
- * 
+ *   analogous to @collect_format. Usually, @lcopy_format string consists
+ *   only of `'p'`s to provide lcopy_value() with pointers to storage locations.
+ * @lcopy_value: Function to store the contents of a value into the
+ *   locations collected from variadic arguments
+ *
  * The #GTypeValueTable provides the functions required by the #GValue
  * implementation, to serve as a container for values of a type.
  */
-
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 struct _GTypeValueTable
 {
-  void     (*value_init)         (GValue       *value);
-  void     (*value_free)         (GValue       *value);
-  void     (*value_copy)         (const GValue *src_value,
-				  GValue       *dest_value);
-  /* varargs functionality (optional) */
-  gpointer (*value_peek_pointer) (const GValue *value);
+  GTypeValueInitFunc value_init;
+  GTypeValueFreeFunc value_free;
+  GTypeValueCopyFunc value_copy;
+  GTypeValuePeekPointerFunc value_peek_pointer;
+
   const gchar *collect_format;
-  gchar*   (*collect_value)      (GValue       *value,
-				  guint         n_collect_values,
-				  GTypeCValue  *collect_values,
-				  guint		collect_flags);
+  GTypeValueCollectFunc collect_value;
+
   const gchar *lcopy_format;
-  gchar*   (*lcopy_value)        (const GValue *value,
-				  guint         n_collect_values,
-				  GTypeCValue  *collect_values,
-				  guint		collect_flags);
+  GTypeValueLCopyFunc lcopy_value;
 };
+G_GNUC_END_IGNORE_DEPRECATIONS
+
 GOBJECT_AVAILABLE_IN_ALL
 GType g_type_register_static		(GType			     parent_type,
 					 const gchar		    *type_name,

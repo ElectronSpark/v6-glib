@@ -13,7 +13,9 @@ The official web site is:
 
 ## Installation
 
-See the file '[INSTALL.md](INSTALL.md)'
+See the file ‘[INSTALL.md](INSTALL.md)’. There is
+[separate and more in-depth documentation](./docs/win32-build.md) for building
+GLib on Windows.
 
 ## Supported versions
 
@@ -79,15 +81,3 @@ Closes: #123
 Otherwise, create a new merge request that introduces the change. Filing a
 separate issue is not required.
 
-## Default branch renamed to `main`
-
-The default development branch of GLib has been renamed to `main`. To update
-your local checkout, use:
-```sh
-git checkout master
-git branch -m master main
-git fetch
-git branch --unset-upstream
-git branch -u origin/main
-git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
-```

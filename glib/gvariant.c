@@ -1282,8 +1282,9 @@ g_variant_new_string (const gchar *string)
  * @string must be valid UTF-8, and must not be %NULL. To encode
  * potentially-%NULL strings, use this with g_variant_new_maybe().
  *
- * This function consumes @string.  g_free() will be called on @string
- * when it is no longer required.
+ * After this call, @string belongs to the #GVariant and may no longer be
+ * modified by the caller. The memory of @data has to be dynamically
+ * allocated and will eventually be freed with g_free().
  *
  * You must not modify or access @string in any other way after passing
  * it to this function.  It is even possible that @string is immediately
@@ -1352,8 +1353,8 @@ g_variant_new_printf (const gchar *format_string,
  * g_variant_new_object_path:
  * @object_path: a normal C nul-terminated string
  *
- * Creates a D-Bus object path #GVariant with the contents of @string.
- * @string must be a valid D-Bus object path.  Use
+ * Creates a D-Bus object path #GVariant with the contents of @object_path.
+ * @object_path must be a valid D-Bus object path.  Use
  * g_variant_is_object_path() if you're not sure.
  *
  * Returns: (transfer none): a floating reference to a new object path #GVariant instance
@@ -2213,20 +2214,22 @@ g_variant_print_string (GVariant *value,
                         GString  *string,
                         gboolean  type_annotate)
 {
+  const gchar *value_type_string = g_variant_get_type_string (value);
+
   if G_UNLIKELY (string == NULL)
     string = g_string_new (NULL);
 
-  switch (g_variant_classify (value))
+  switch (value_type_string[0])
     {
     case G_VARIANT_CLASS_MAYBE:
       if (type_annotate)
-        g_string_append_printf (string, "@%s ",
-                                g_variant_get_type_string (value));
+        g_string_append_printf (string, "@%s ", value_type_string);
 
       if (g_variant_n_children (value))
         {
-          gchar *printed_child;
-          GVariant *element;
+          const GVariantType *base_type;
+          guint i, depth;
+          GVariant *element = NULL;
 
           /* Nested maybes:
            *
@@ -2240,19 +2243,36 @@ g_variant_print_string (GVariant *value,
            * "just" is actually exactly the case where we have a nested
            * Nothing.
            *
-           * Instead of searching for that nested Nothing, we just print
-           * the contained value into a separate string and see if we
-           * end up with "nothing" at the end of it.  If so, we need to
-           * add "just" at our level.
+           * Search for the nested Nothing, to save a lot of recursion if there
+           * are multiple levels of maybes.
            */
-          element = g_variant_get_child_value (value, 0);
-          printed_child = g_variant_print (element, FALSE);
-          g_variant_unref (element);
+          for (depth = 0, base_type = g_variant_get_type (value);
+               g_variant_type_is_maybe (base_type);
+               depth++, base_type = g_variant_type_element (base_type));
 
-          if (g_str_has_suffix (printed_child, "nothing"))
-            g_string_append (string, "just ");
-          g_string_append (string, printed_child);
-          g_free (printed_child);
+          element = g_variant_ref (value);
+          for (i = 0; i < depth && element != NULL; i++)
+            {
+              GVariant *new_element = g_variant_n_children (element) ? g_variant_get_child_value (element, 0) : NULL;
+              g_variant_unref (element);
+              element = g_steal_pointer (&new_element);
+            }
+
+          if (element == NULL)
+            {
+              /* One of the maybes was Nothing, so print out the right number of
+               * justs. */
+              for (; i > 1; i--)
+                g_string_append (string, "just ");
+              g_string_append (string, "nothing");
+            }
+          else
+            {
+              /* There are no Nothings, so print out the child with no prefixes. */
+              g_variant_print_string (element, string, FALSE);
+            }
+
+          g_clear_pointer (&element, g_variant_unref);
         }
       else
         g_string_append (string, "nothing");
@@ -2265,7 +2285,7 @@ g_variant_print_string (GVariant *value,
        * if the first two characters are 'ay' then it's a bytestring.
        * under certain conditions we print those as strings.
        */
-      if (g_variant_get_type_string (value)[1] == 'y')
+      if (value_type_string[1] == 'y')
         {
           const gchar *str;
           gsize size;
@@ -2307,7 +2327,7 @@ g_variant_print_string (GVariant *value,
        * dictionary entries (ie: a dictionary) so we print that
        * differently.
        */
-      if (g_variant_get_type_string (value)[1] == '{')
+      if (value_type_string[1] == '{')
         /* dictionary */
         {
           const gchar *comma = "";
@@ -2316,8 +2336,7 @@ g_variant_print_string (GVariant *value,
           if ((n = g_variant_n_children (value)) == 0)
             {
               if (type_annotate)
-                g_string_append_printf (string, "@%s ",
-                                        g_variant_get_type_string (value));
+                g_string_append_printf (string, "@%s ", value_type_string);
               g_string_append (string, "{}");
               break;
             }
@@ -2353,8 +2372,7 @@ g_variant_print_string (GVariant *value,
           if ((n = g_variant_n_children (value)) == 0)
             {
               if (type_annotate)
-                g_string_append_printf (string, "@%s ",
-                                        g_variant_get_type_string (value));
+                g_string_append_printf (string, "@%s ", value_type_string);
               g_string_append (string, "[]");
               break;
             }
@@ -2934,6 +2952,8 @@ struct heap_iter
   gsize magic;
 };
 
+G_STATIC_ASSERT (sizeof (struct heap_iter) <= sizeof (GVariantIter));
+
 #define GVSI(i)                 ((struct stack_iter *) (i))
 #define GVHI(i)                 ((struct heap_iter *) (i))
 #define GVSI_MAGIC              ((gsize) 3579507750u)
@@ -3203,7 +3223,7 @@ struct heap_builder
 
 /* Just to make sure that by adding a union to GVariantBuilder, we
  * didn't accidentally change ABI. */
-G_STATIC_ASSERT (sizeof (GVariantBuilder) == sizeof (gsize[16]));
+G_STATIC_ASSERT (sizeof (GVariantBuilder) == sizeof (guintptr[16]));
 
 static gboolean
 ensure_valid_builder (GVariantBuilder *builder)
@@ -3890,7 +3910,7 @@ struct heap_dict
 
 /* Just to make sure that by adding a union to GVariantDict, we didn't
  * accidentally change ABI. */
-G_STATIC_ASSERT (sizeof (GVariantDict) == sizeof (gsize[16]));
+G_STATIC_ASSERT (sizeof (GVariantDict) == sizeof (guintptr[16]));
 
 static gboolean
 ensure_valid_dict (GVariantDict *dict)
@@ -4019,7 +4039,8 @@ g_variant_dict_init (GVariantDict *dict,
  *
  * This function is a wrapper around g_variant_dict_lookup_value() and
  * g_variant_get().  In the case that %NULL would have been returned,
- * this function returns %FALSE.  Otherwise, it unpacks the returned
+ * this function returns %FALSE and does not modify the values of the arguments
+ * passed in to @....  Otherwise, it unpacks the returned
  * value and returns %TRUE.
  *
  * @format_string determines the C types that are used for unpacking the

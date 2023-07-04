@@ -1,5 +1,5 @@
 project('glib', 'c',
-  version : '2.75.1',
+  version : '2.77.0',
   # NOTE: See the policy in docs/meson-version.md before changing the Meson dependency
   meson_version : '>= 0.60.0',
   default_options : [
@@ -8,6 +8,8 @@ project('glib', 'c',
     'c_std=gnu99'
   ]
 )
+
+fs = import('fs')
 
 cc = meson.get_compiler('c')
 c_standards = {}
@@ -37,7 +39,7 @@ cc_can_run = meson.can_run_host_binaries()
 if cc.get_argument_syntax() == 'msvc'
   # Ignore several spurious warnings for things glib does very commonly
   # (also for clang-cl)
-  add_project_arguments('/FImsvc_recommended_pragmas.h',language : 'c')
+  add_project_arguments('/FIglib/msvc_recommended_pragmas.h', language : 'c')
 endif
 
 if cc.get_id() == 'msvc'
@@ -151,6 +153,10 @@ common_test_env = [
   'MALLOC_CHECK_=2',
 ]
 
+# Note: this may cause the tests output not to be printed when running in
+# verbose mode, see https://github.com/mesonbuild/meson/issues/11185
+# Can be changed it to 'exitcode' if required during development.
+test_protocol = 'tap'
 test_timeout = 30
 test_timeout_slow = 90
 
@@ -171,9 +177,10 @@ add_test_setup('unstable_tests',
 
 # Allow the tests to be easily run under valgrind using --setup=valgrind
 valgrind = find_program('valgrind', required: false)
-if valgrind.found()
-  suppression_file = files('tools' / 'glib.supp')
+valgrind_suppression_file = files('tools' / 'glib.supp')[0]
+valgrind_suppression_file_install_subdir = 'glib-2.0' / 'valgrind'
 
+if valgrind.found()
   add_test_setup('valgrind',
     exclude_suites: [ 'no-valgrind', 'flaky' ],
     exe_wrapper: [
@@ -187,7 +194,7 @@ if valgrind.found()
       '--show-leak-kinds=definite,possible',
       '--show-error-list=yes',
       '--suppressions=@0@'.format(meson.project_source_root() /
-        '@0@'.format(suppression_file[0])),
+        '@0@'.format(valgrind_suppression_file)),
     ],
     env: common_test_env,
     timeout_multiplier: 20,
@@ -405,7 +412,7 @@ if cc.check_header('malloc.h')
   glib_conf_prefix = glib_conf_prefix + '#define HAVE_MALLOC_H 1\n'
 endif
 
-if cc.has_header('linux/netlink.h')
+if cc.check_header('linux/netlink.h')
   glib_conf.set('HAVE_NETLINK', 1)
 endif
 
@@ -502,7 +509,7 @@ if cc.get_id() == 'gcc' or cc.get_id() == 'clang'
     # building with -Wbad-function-cast.
     '-Wno-cast-function-type',
     # Due to function casts through (void*) we cannot support -Wpedantic:
-    # https://wiki.gnome.org/Projects/GLib/CompilerRequirements#Function_pointer_conversions.
+    # ./docs/toolchain-requirements.md#Function_pointer_conversions.
     '-Wno-pedantic',
     # A zero-length format string shouldn't be considered an issue.
     '-Wno-format-zero-length',
@@ -602,7 +609,9 @@ if host_system == 'windows'
 endif
 
 functions = [
+  'accept4',
   'close_range',
+  'copy_file_range',
   'endmntent',
   'endservent',
   'epoll_create',
@@ -610,6 +619,8 @@ functions = [
   'fchmod',
   'fchown',
   'fdwalk',
+  'free_aligned_sized',
+  'free_sized',
   'fsync',
   'getauxval',
   'getc_unlocked',
@@ -718,6 +729,10 @@ foreach f : functions
   endif
 endforeach
 
+# Export the information about free_sized() so we can correctly define a macro
+# wrapper around g_free()/g_free_sized() depending on whether it’s available
+glibconfig_conf.set('G_HAVE_FREE_SIZED', have_func_free_sized)
+
 # Check that stpcpy() is usable; must use header.
 # See:
 # https://github.com/mesonbuild/meson/issues/5628.
@@ -817,6 +832,10 @@ if cc.has_header_symbol('dlfcn.h', 'RTLD_NEXT', args: '-D_GNU_SOURCE')
   glib_conf.set('HAVE_RTLD_NEXT', 1)
 endif
 
+if cc.has_type('loff_t', prefix: '#include <sys/types.h>')
+  glib_conf.set('HAVE_LOFF_T', 1)
+endif
+
 # Check whether to use statfs or statvfs
 # Some systems have both statfs and statvfs, pick the most "native" for these
 if have_func_statfs and have_func_statvfs
@@ -847,6 +866,7 @@ if host_system == 'linux'
   endif
 endif
 
+osx_ldflags = []
 glib_have_os_x_9_or_later = false
 glib_have_carbon = false
 glib_have_cocoa = false
@@ -879,6 +899,7 @@ if host_system == 'darwin'
 
   if glib_have_cocoa
     glib_conf.set('HAVE_COCOA', true)
+    osx_ldflags += ['-Wl,-framework,Foundation', '-Wl,-framework,AppKit']
   endif
 endif
 
@@ -1473,8 +1494,6 @@ long_long_align = cc.alignment('long long')
 # be 64-bit in C99, and it is available on all supported compilers
 sizet_align = cc.alignment('size_t')
 
-glib_conf.set('ALIGNOF_UNSIGNED_LONG', long_align)
-
 glib_conf.set('SIZEOF_CHAR', char_size)
 glib_conf.set('SIZEOF_INT', int_size)
 glib_conf.set('SIZEOF_SHORT', short_size)
@@ -1528,7 +1547,6 @@ glibconfig_conf.set('gint32', gint32)
 glibconfig_conf.set_quoted('gint32_modifier', gint32_modifier)
 glibconfig_conf.set_quoted('gint32_format', gint32_format)
 glibconfig_conf.set_quoted('guint32_format', guint32_format)
-glib_conf.set('ALIGNOF_GUINT32', guint32_align)
 
 if int_size == 8
   gint64 = 'int'
@@ -1567,7 +1585,6 @@ glibconfig_conf.set_quoted('gint64_format', gint64_format)
 glibconfig_conf.set_quoted('guint64_format', guint64_format)
 glibconfig_conf.set('gint64_constant', gint64_constant)
 glibconfig_conf.set('guint64_constant', guint64_constant)
-glib_conf.set('ALIGNOF_GUINT64', guint64_align)
 
 if host_system == 'windows'
   glibconfig_conf.set('g_pid_type', 'void*')
@@ -1952,10 +1969,6 @@ else
     glib_conf.set('HAVE_PTHREAD_GETNAME_NP', 1)
   endif
 
-  if cc.has_header_symbol('sys/syscall.h', 'SYS_sched_getattr')
-    glib_conf.set('HAVE_SYS_SCHED_GETATTR', 1)
-  endif
-
   # Assume that pthread_setname_np is available in some form; same as configure
   if cc.links(pthread_prefix + '''
               int main() {
@@ -2038,7 +2051,10 @@ else
   libiconv = dependency('iconv')
 endif
 
-pcre2 = dependency('libpcre2-8', version: '>= 10.32', required : false)
+pcre2_req = '>=10.32'
+
+# Pick up pcre from the system, or if "--force-fallback-for libpcre2-8" was specified
+pcre2 = dependency('libpcre2-8', version: pcre2_req, required: false, default_options: ['default_library=static'])
 if not pcre2.found()
   if cc.get_id() == 'msvc' or cc.get_id() == 'clang-cl'
   # MSVC: Search for the PCRE2 library by the configuration, which corresponds
@@ -2054,8 +2070,11 @@ endif
 
 # Try again with the fallback
 if not pcre2.found()
-  pcre2 = dependency('libpcre2-8', required : true, fallback : ['pcre2', 'libpcre2_8'])
-  use_pcre2_static_flag = true
+  pcre2 = dependency('libpcre2-8', version: pcre2_req, allow_fallback: true, default_options: ['default_library=static'])
+  assert(pcre2.type_name() == 'internal')
+  # static flags are automatically enabled by the subproject if it's built
+  # with default_library=static
+  use_pcre2_static_flag = false
 elif host_system == 'windows'
   pcre2_static = cc.links('''#define PCRE2_STATIC
                              #define PCRE2_CODE_UNIT_WIDTH 8
@@ -2077,7 +2096,7 @@ subproject('gvdb')
 gvdb_dep = dependency('gvdb')
 
 libm = cc.find_library('m', required : false)
-libffi_dep = dependency('libffi', version : '>= 3.0.0', fallback : ['libffi', 'ffi_dep'])
+libffi_dep = dependency('libffi', version : '>= 3.0.0')
 
 libz_dep = dependency('zlib')
 
@@ -2086,7 +2105,8 @@ libz_dep = dependency('zlib')
 # FIXME: glib-gettext.m4 has much more checks to detect broken/uncompatible
 # implementations. This could be extended if issues are found in some platforms.
 libintl_deps = []
-libintl = dependency('intl', required: false)
+libintl_prefix = '#include <libintl.h>'
+libintl = dependency('intl', required: false, allow_fallback: false)
 if libintl.found()
   # libintl supports different threading APIs, which may not
   # require additional flags, but it defaults to using pthreads if
@@ -2097,22 +2117,28 @@ if libintl.found()
   #
   # Meson's builtin dependency lookup as of 0.60.0 doesn't check for
   # pthread, so we do this manually here.
-  if cc.has_function('ngettext', dependencies : libintl)
+  if cc.has_function('ngettext', dependencies : libintl, prefix: libintl_prefix)
     libintl_deps += [libintl]
   else
-    libintl_pthread = cc.find_library('pthread', required : false)
-    if libintl_pthread.found() and cc.has_function('ngettext', dependencies : [libintl, libintl_pthread])
-      libintl_deps += [libintl, libintl_pthread]
+    libintl_iconv = cc.find_library('iconv', required : false)
+    if libintl_iconv.found() and cc.has_function('ngettext', args : osx_ldflags, dependencies : [libintl, libintl_iconv])
+      libintl_deps += [libintl, libintl_iconv]
     else
-      libintl = disabler()
+      libintl_pthread = cc.find_library('pthread', required : false)
+      if libintl_pthread.found() and cc.has_function('ngettext', dependencies : [libintl, libintl_pthread], prefix: libintl_prefix)
+        libintl_deps += [libintl, libintl_pthread]
+      else
+        libintl = disabler()
+      endif
     endif
   endif
 endif
 
 if libintl.found()
-  have_bind_textdomain_codeset = cc.has_function('bind_textdomain_codeset', dependencies: libintl_deps)
+  have_bind_textdomain_codeset = cc.has_function('bind_textdomain_codeset', dependencies: libintl_deps, prefix: libintl_prefix)
 else
-  libintl = subproject('proxy-libintl').get_variable('intl_dep')
+  libintl = dependency('intl', allow_fallback: true)
+  assert(libintl.type_name() == 'internal')
   libintl_deps = [libintl]
   have_bind_textdomain_codeset = true  # proxy-libintl supports it
 endif
@@ -2280,9 +2306,11 @@ if not python_version.version_compare(python_version_req)
 endif
 
 # Determine which user environment-dependent files that we want to install
-have_bash = find_program('bash', required : false).found() # For completion scripts
+bash = find_program('bash', required : false)
+have_bash = bash.found() # For completion scripts
 bash_comp_dep = dependency('bash-completion', version: '>=2.0', required: false)
 have_sh = find_program('sh', required : false).found() # For glib-gettextize
+have_pkg_config = find_program('pkg-config', required: false).found()
 
 # Some installed tests require a custom environment
 env_program = find_program('env', required: installed_tests_enabled)
@@ -2300,15 +2328,15 @@ if host_system == 'windows'
   # Autotools explicitly removed --Wl,--export-all-symbols from windows builds,
   # with no explanation. Do the same here for now but this could be revisited if
   # if causes issues.
-  export_dynamic_ldflags = []
+  export_dynamic_cflags = []
 elif host_system == 'cygwin'
-  export_dynamic_ldflags = ['-Wl,--export-all-symbols']
+  export_dynamic_cflags = ['-Wl,--export-all-symbols']
 elif host_system in ['darwin', 'ios']
-  export_dynamic_ldflags = []
+  export_dynamic_cflags = []
 elif host_system == 'sunos'
-  export_dynamic_ldflags = []
+  export_dynamic_cflags = []
 else
-  export_dynamic_ldflags = ['-Wl,--export-dynamic']
+  export_dynamic_cflags = ['-Wl,--export-dynamic']
 endif
 
 win32_cflags = []
@@ -2415,10 +2443,6 @@ if host_system == 'windows'
 endif
 
 configure_file(output : 'config.h', configuration : glib_conf)
-
-if host_system == 'windows'
-  install_headers([ 'msvc_recommended_pragmas.h' ], install_dir : glib_includedir)
-endif
 
 if get_option('man')
   xsltproc = find_program('xsltproc', required : true)

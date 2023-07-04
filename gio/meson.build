@@ -276,10 +276,6 @@ settings_sources = files(
   'gsettings.c',
 )
 
-if host_system == 'windows'
-  settings_sources += files('gregistrysettingsbackend.c')
-endif
-
 application_headers = files(
   'gapplication.h',
   'gapplicationcommandline.h',
@@ -444,6 +440,7 @@ else
 
   win32_sources += files(
     'gmemorymonitorwin32.c',
+    'gregistrysettingsbackend.c',
     'gwin32registrykey.c',
     'gwin32mount.c',
     'gwin32volumemonitor.c',
@@ -467,6 +464,7 @@ else
   win32_sources += [gio_win_res]
 
   gio_win32_include_headers = files(
+    'gregistrysettingsbackend.h',
     'gwin32inputstream.h',
     'gwin32outputstream.h',
   )
@@ -748,7 +746,7 @@ gio_headers = files(
   'gliststore.h',
 )
 
-gvisibility_h = custom_target(
+gio_visibility_h = custom_target(
   output: 'gio-visibility.h',
   command: [gen_visibility_macros, meson.project_version(), 'visibility-macros', 'GIO', '@OUTPUT@'],
   install: true,
@@ -756,7 +754,7 @@ gvisibility_h = custom_target(
   # FIXME: Not needed with Meson >= 0.64.0
   install_tag: 'devel',
 )
-gio_sources += gvisibility_h
+gio_sources += gio_visibility_h
 
 gio_headers += application_headers
 gio_headers += settings_headers
@@ -786,7 +784,7 @@ gioenumtypes_c = custom_target('gioenumtypes_c',
              '--template', files('gioenumtypes.c.template'),
              '@INPUT@', gnetworking_h])
 
-gioenumtypes_dep = declare_dependency(sources : [gioenumtypes_h, glib_enumtypes_h, gvisibility_h])
+gioenumtypes_dep = declare_dependency(sources : [gioenumtypes_h, glib_enumtypes_h, gio_visibility_h])
 
 # inotify
 if glib_conf.has('HAVE_SYS_INOTIFY_H') and have_func_inotify_init1
@@ -877,18 +875,20 @@ libgio_dep = declare_dependency(link_with : libgio,
 
 pkg.generate(libgio,
   requires : ['glib-2.0', 'gobject-2.0'],
-  variables : ['datadir=' + join_paths('${prefix}', get_option('datadir')),
-               'schemasdir=' + join_paths('${datadir}', schemas_subdir),
-               'bindir=' + join_paths('${prefix}', get_option('bindir')),
-               'giomoduledir=' + pkgconfig_giomodulesdir,
-               'gio=' + join_paths('${bindir}', 'gio'),
-               'gio_querymodules=@0@'.format(pkgconfig_multiarch_bindir / 'gio-querymodules'),
-               'glib_compile_schemas=@0@'.format(pkgconfig_multiarch_bindir / 'glib-compile-schemas'),
-               'glib_compile_resources=' + join_paths('${bindir}', 'glib-compile-resources'),
-               'gdbus=' + join_paths('${bindir}', 'gdbus'),
-               'gdbus_codegen=' + join_paths('${bindir}', 'gdbus-codegen'),
-               'gresource=' + join_paths('${bindir}', 'gresource'),
-               'gsettings=' + join_paths('${bindir}', 'gsettings')],
+  variables : [
+    'datadir=' + '${prefix}' / get_option('datadir'),
+    'schemasdir=' + '${datadir}' / schemas_subdir,
+    'bindir=' + '${prefix}' / get_option('bindir'),
+    'giomoduledir=' + pkgconfig_giomodulesdir,
+    'gio=' + '${bindir}' / 'gio',
+    'gio_querymodules=' + pkgconfig_multiarch_bindir / 'gio-querymodules',
+    'glib_compile_schemas=' + pkgconfig_multiarch_bindir / 'glib-compile-schemas',
+    'glib_compile_resources=' + '${bindir}' / 'glib-compile-resources',
+    'gdbus=' + '${bindir}' /'gdbus',
+    'gdbus_codegen=' + '${bindir}' / 'gdbus-codegen',
+    'gresource=' + '${bindir}' / 'gresource',
+    'gsettings=' + '${bindir}' / 'gsettings',
+  ],
   version : glib_version,
   install_dir : glib_pkgconfigreldir,
   filebase : 'gio-2.0',
@@ -930,7 +930,7 @@ endif
 
 # Dependencies used by executables below
 have_libelf = false
-libelf = dependency('libelf', version : '>= 0.8.12', required : get_option ('libelf'))
+libelf = dependency('libelf', version : '>= 0.8.12', required : false)
 if libelf.found()
   have_libelf = true
 else

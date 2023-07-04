@@ -21,6 +21,7 @@
 
 #include "config.h"
 
+#include <stdint.h>
 
 /* gwakeup.c is special -- GIO and some test cases include it.  As such,
  * it cannot include other glib headers without triggering the single
@@ -159,7 +160,7 @@ g_wakeup_new (void)
   /* for any failure, try a pipe instead */
 #endif
 
-  if (!g_unix_open_pipe (wakeup->fds, FD_CLOEXEC, &error))
+  if (!g_unix_open_pipe (wakeup->fds, FD_CLOEXEC | O_NONBLOCK, &error))
     g_error ("Creating pipes for GWakeup: %s", error->message);
 
   if (!g_unix_set_fd_nonblocking (wakeup->fds[0], TRUE, &error) ||

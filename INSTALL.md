@@ -4,12 +4,12 @@ Simple install procedure
 ```sh
 tar xf glib-*.tar.gz                    # unpack the sources
 cd glib-*                               # change to the toplevel directory
-meson _build                            # configure the build
-ninja -C _build                         # build GLib
+meson setup _build                      # configure the build
+meson compile -C _build                 # build GLib
 
 # Become root if necessary
 
-ninja -C _build install                 # install GLib
+meson install -C _build                 # install GLib
 ```
 
 Requirements
@@ -87,7 +87,7 @@ in the file:
 
 Or online at:
 
- https://developer.gnome.org/glib/stable/glib-building.html
+ https://docs.gtk.org/glib/building.html
 
 
 Installation directories
@@ -127,4 +127,4 @@ in the file:
 
 Or online at:
 
- https://developer.gnome.org/glib/stable/glib-cross-compiling.html
+ https://docs.gtk.org/glib/cross-compiling.html

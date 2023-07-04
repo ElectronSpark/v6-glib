@@ -9,8 +9,8 @@ warned.
 # General
 
 For prebuilt binaries (DLLs and EXEs) and developer packages (headers,
-import libraries) of GLib, Pango, GTK+ etc for Windows, go to
-https://www.gtk.org/download/windows.php . They are for "native"
+import libraries) of GLib, Pango, GTK etc for Windows, go to
+https://www.gtk.org/docs/installations/windows/ . They are for "native"
 Windows meaning they use the Win32 API and Microsoft C runtime library
 only. No POSIX (Unix) emulation layer like Cygwin is involved.
 
@@ -30,17 +30,16 @@ On Windows setting up a correct build environment is very similar to typing
 The following preprocessor macros are to be used for conditional
 compilation related to Win32 in GLib-using code:
 
-- `G_OS_WIN32` is defined when compiling for native Win32, without
-  any POSIX emulation, other than to the extent provided by the
-  bundled Microsoft C library.
+- `G_OS_WIN32` and `G_PLATFORM_WIN32` are defined when compiling for native
+  Win32, without any POSIX emulation, other than to the extent provided by
+  the bundled Microsoft C library.  Either can be used to check when
+  conditionally compiling GLib-using code for Win32.
 
 - `G_WITH_CYGWIN` is defined if compiling for the Cygwin
   environment. Note that `G_OS_WIN32` is *not* defined in that case, as
   Cygwin is supposed to behave like Unix. `G_OS_UNIX` *is* defined by a GLib
-  for Cygwin.
-
-- `G_PLATFORM_WIN32` is defined when either `G_OS_WIN32` or `G_WITH_CYGWIN`
-  is defined.
+  for Cygwin, but `G_PLATFORM_WIN32` is *no longer* defined by GLib for
+  Cygwin.
 
 These macros are defined in `glibconfig.h`, and are thus available in
 all source files that include `<glib.h>`.
@@ -60,9 +59,9 @@ MinGW](https://mingwpy.github.io/ucrt.html) too.
 GLib is not actively tested with the static versions of the UCRT, but if you
 need to use those, patches are welcome.
 
-# Building software that use GLib or GTK+
+# Building software that use GLib or GTK
 
-Building software that just *uses* GLib or GTK+ also require to have
+Building software that just *uses* GLib or GTK also require to have
 the right compiler set up the right way. If you intend to use MinGW-GCC,
 follow the relevant instructions below in that case, too.
 
