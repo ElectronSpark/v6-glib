@@ -37,6 +37,18 @@
 
 G_BEGIN_DECLS
 
+struct _GTestMSBitfields
+{
+  gint32 a : 1;
+  gshort b : 1;
+};
+
+/*
+ * Since GLib 2.78, -mms-bitfields is no longer added by glib-2.0.pc
+ * It is the default since GCC v4.7 and clang v12.
+ */
+G_STATIC_ASSERT(sizeof(struct _GTestMSBitfields) != sizeof(gint32));
+
 #ifndef MAXPATHLEN
 #define MAXPATHLEN 1024
 #endif
