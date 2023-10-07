@@ -239,11 +239,12 @@ g_win32_fs_monitor_callback (DWORD        error,
                          g_win32_fs_monitor_callback);
 }
 
-void
+gboolean
 g_win32_fs_monitor_init (GWin32FSMonitorPrivate *monitor,
                          const gchar *dirname,
                          const gchar *filename,
-                         gboolean isfile)
+                         gboolean isfile,
+                         GError **error)
 {
   wchar_t *wdirname_with_long_prefix = NULL;
   const gchar LONGPFX[] = "\\\\?\\";
@@ -257,9 +258,8 @@ g_win32_fs_monitor_init (GWin32FSMonitorPrivate *monitor,
                          FILE_NOTIFY_CHANGE_ATTRIBUTES |
                          FILE_NOTIFY_CHANGE_SIZE);
 
-  gboolean success_attribs;
+  gboolean success_attribs, success_read_dir_changes;
   WIN32_FILE_ATTRIBUTE_DATA attrib_data = {0, };
-
 
   if (dirname != NULL)
     {
@@ -356,17 +356,33 @@ g_win32_fs_monitor_init (GWin32FSMonitorPrivate *monitor,
   g_free (wdirname_with_long_prefix);
   g_free (dirname_with_long_prefix);
 
-  if (monitor->hDirectory != INVALID_HANDLE_VALUE)
+  if (monitor->hDirectory == INVALID_HANDLE_VALUE)
     {
-      ReadDirectoryChangesW (monitor->hDirectory,
-                             monitor->file_notify_buffer,
-                             monitor->buffer_allocated_bytes,
-                             FALSE,
-                             notify_filter,
-                             &monitor->buffer_filled_bytes,
-                             &monitor->overlapped,
-                             g_win32_fs_monitor_callback);
+      g_set_error (error, G_IO_ERROR,
+                   g_io_error_from_win32_error (GetLastError ()),
+                   "Failed to open %s for watching",
+                   dirname_with_long_prefix);
+      return FALSE;
     }
+
+  success_read_dir_changes = ReadDirectoryChangesW (monitor->hDirectory,
+                                                    monitor->file_notify_buffer,
+                                                    monitor->buffer_allocated_bytes,
+                                                    FALSE,
+                                                    notify_filter,
+                                                    &monitor->buffer_filled_bytes,
+                                                    &monitor->overlapped,
+                                                    g_win32_fs_monitor_callback);
+  if (!success_read_dir_changes)
+    {
+      g_set_error (error, G_IO_ERROR,
+                   g_io_error_from_win32_error (GetLastError ()),
+                   "Failed to watch %s for changes",
+                   dirname_with_long_prefix);
+      return FALSE;
+    }
+
+  return TRUE;
 }
 
 GWin32FSMonitorPrivate *

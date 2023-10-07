@@ -32,23 +32,27 @@ G_DEFINE_TYPE_WITH_CODE (GWin32FileMonitor, g_win32_file_monitor, G_TYPE_LOCAL_F
                          g_io_extension_point_implement (G_LOCAL_FILE_MONITOR_EXTENSION_POINT_NAME,
                                                          g_define_type_id, "win32filemonitor", 20))
 
-static void
+static gboolean
 g_win32_file_monitor_start (GLocalFileMonitor  *monitor,
                             const gchar        *dirname,
                             const gchar        *basename,
                             const gchar        *filename,
-                            GFileMonitorSource *source)
+                            GFileMonitorSource *source,
+                            GError            **error)
 {
   GWin32FileMonitor *win32_monitor = G_WIN32_FILE_MONITOR (monitor);
+  gboolean ok;
 
   win32_monitor->priv->fms = source;
 
   if (filename == NULL && basename == NULL)
-    g_win32_fs_monitor_init (win32_monitor->priv, dirname, NULL, FALSE);
+    ok = g_win32_fs_monitor_init (win32_monitor->priv, dirname, NULL, FALSE, error);
   else if (basename != NULL)
-    g_win32_fs_monitor_init (win32_monitor->priv, dirname, basename, TRUE);
+    ok = g_win32_fs_monitor_init (win32_monitor->priv, dirname, basename, TRUE, error);
   else
-    g_win32_fs_monitor_init (win32_monitor->priv, NULL, filename, TRUE);
+    ok = g_win32_fs_monitor_init (win32_monitor->priv, NULL, filename, TRUE, error);
+
+  return ok;
 }
 
 static gboolean

@@ -205,12 +205,13 @@ g_kqueue_file_monitor_finalize (GObject *object)
     (*G_OBJECT_CLASS (g_kqueue_file_monitor_parent_class)->finalize) (object);
 }
 
-static void
+static gboolean
 g_kqueue_file_monitor_start (GLocalFileMonitor *local_monitor,
                              const gchar *dirname,
                              const gchar *basename,
                              const gchar *filename,
-                             GFileMonitorSource *source)
+                             GFileMonitorSource *source,
+                             GError **error)
 {
   GKqueueFileMonitor *kqueue_monitor = G_KQUEUE_FILE_MONITOR (local_monitor);
   kqueue_sub *sub_dir = NULL, *sub_file = NULL;
@@ -262,7 +263,7 @@ g_kqueue_file_monitor_start (GLocalFileMonitor *local_monitor,
       kqueue_monitor->fallback = _g_poll_file_monitor_new (file);
       g_signal_connect (kqueue_monitor->fallback, "changed",
 			G_CALLBACK (_fallback_callback), kqueue_monitor);
-      return;
+      return TRUE;
     }
 #endif
 
@@ -297,6 +298,8 @@ g_kqueue_file_monitor_start (GLocalFileMonitor *local_monitor,
   g_clear_pointer (&path_dir, g_free);
   g_clear_pointer (&path_file, g_free);
   g_clear_pointer (&file_basename, g_free);
+
+  return TRUE;
 }
 
 static void
