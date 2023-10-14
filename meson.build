@@ -972,7 +972,7 @@ else
 endif
 message('Checking whether to use statfs or statvfs .. ' + stat_func_to_use)
 
-if host_system == 'linux'
+if host_system in ['linux', 'gnu']
   if cc.has_function('mkostemp',
                      prefix: '''#define _GNU_SOURCE
                                 #include <stdlib.h>''')

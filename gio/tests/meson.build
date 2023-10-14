@@ -1001,8 +1001,8 @@ if not meson.is_cross_build()
 
   ld = find_program('ld', required : false)
 
-  if build_machine.system() != 'linux'
-    why_no_external_data = 'only works on Linux'
+  if build_machine.system() not in ['linux', 'gnu']
+    why_no_external_data = 'only works on Linux and GNU/Hurd'
   elif not objcopy.found()
     why_no_external_data = 'objcopy not found'
   elif not objcopy_supports_add_symbol
