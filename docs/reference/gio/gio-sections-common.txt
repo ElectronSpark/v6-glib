@@ -2633,6 +2633,9 @@ g_settings_schema_source_unref
 
 <SUBSECTION>
 g_settings_schema_source_new_from_directory
+g_settings_schema_source_new_from_path
+g_settings_schema_source_new_from_bytes
+g_settings_schema_source_new_from_resource
 
 <SUBSECTION>
 g_settings_schema_source_list_schemas
