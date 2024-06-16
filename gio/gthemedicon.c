@@ -316,25 +316,28 @@ g_themed_icon_update_names (GThemedIcon *themed)
       else if (is_symbolic)
         g_free (name);
     }
-  for (iter = names; iter; iter = iter->next)
+  if (themed->use_default_fallbacks)
     {
-      gchar    *name = (gchar *) iter->data;
-      gchar    *variant;
-      gboolean  is_symbolic;
-
-      is_symbolic = g_str_has_suffix (name, "-symbolic");
-      if (is_symbolic)
-        variant = g_strndup (name, strlen (name) - 9);
-      else
-        variant = g_strdup_printf ("%s-symbolic", name);
-      if (g_list_find_custom (names, variant, (GCompareFunc) g_strcmp0) ||
-          g_list_find_custom (variants, variant, (GCompareFunc) g_strcmp0))
+      for (iter = names; iter; iter = iter->next)
         {
-          g_free (variant);
-          continue;
-        }
+          gchar    *name = (gchar *) iter->data;
+          gchar    *variant;
+          gboolean  is_symbolic;
 
-      variants = g_list_prepend (variants, variant);
+          is_symbolic = g_str_has_suffix (name, "-symbolic");
+          if (is_symbolic)
+            variant = g_strndup (name, strlen (name) - 9);
+          else
+            variant = g_strdup_printf ("%s-symbolic", name);
+          if (g_list_find_custom (names, variant, (GCompareFunc) g_strcmp0) ||
+              g_list_find_custom (variants, variant, (GCompareFunc) g_strcmp0))
+            {
+              g_free (variant);
+              continue;
+            }
+
+          variants = g_list_prepend (variants, variant);
+        }
     }
   names = g_list_reverse (names);
 
