@@ -353,6 +353,18 @@ g_themed_icon_update_names (GThemedIcon *themed)
   g_list_free (names);
   g_list_free (variants);
 
+  g_print ("use_default_fallbacks=%s\n", themed->use_default_fallbacks ? "yes" : "no");
+
+  g_print ("Before (init_names array): ");
+  for (i = 0; themed->init_names[i] != NULL; i++)
+    g_print ("%s, ", themed->init_names[i]);
+  g_print ("\n");
+
+  g_print ("After (names array): ");
+  for (i = 0; themed->names[i] != NULL; i++)
+    g_print ("%s, ", themed->names[i]);
+  g_print ("\n\n");
+
   g_object_notify (G_OBJECT (themed), "names");
 }
 
