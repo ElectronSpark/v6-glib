@@ -20,8 +20,21 @@
 #ifndef __GLIB_ANDROID_PRIVATE_H__
 #define __GLIB_ANDROID_PRIVATE_H__
 
+#include "gmessages.h"
+
 #include "glib-android.h"
 
 void g_android_finalize (void);
+
+void g_android_print_handler                      (const char *message);
+void g_android_printerr_handler                   (const char *message);
+void g_android_log_handler                        (const gchar *log_domain,
+                                                   GLogLevelFlags log_level,
+                                                   const char *message,
+                                                   gpointer user_data);
+GLogWriterOutput g_android_structured_log_handler (GLogLevelFlags log_level,
+                                                   const GLogField *fields,
+                                                   gsize n_fields,
+                                                   gpointer user_data);
 
 #endif /* __GLIB_ANDROID_PRIVATE_H__ */
