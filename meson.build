@@ -354,6 +354,8 @@ else
 endif
 glibconfig_conf.set('G_HAVE_JAVA_SUPPORT', have_java)
 
+build_android_platform = false
+
 # Cygwin glib port maintainers made it clear
 # (via the patches they apply) that they want no
 # part of glib W32 code, therefore we do not define
@@ -366,6 +368,10 @@ if host_system == 'windows'
 elif host_system == 'cygwin'
   glib_os = '''#define G_OS_UNIX
 #define G_WITH_CYGWIN'''
+elif host_system == 'android' and have_java
+  glib_os = '''#define G_OS_UNIX
+#define G_PLATFORM_ANDROID'''
+  build_android_platform = true
 else
   glib_os = '#define G_OS_UNIX'
 endif
@@ -2823,6 +2829,12 @@ endif
 
 if enable_systemtap
   summary('tapset dir', get_option('tapset_install_dir'), section: 'Directories')
+endif
+
+if host_system == 'android'
+  summary({
+    'android_platform' : build_android_platform,
+  }, section: 'Target configuration')
 endif
 
 if host_system == 'linux'

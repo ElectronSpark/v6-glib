@@ -21,6 +21,10 @@
 #include "grefcount.h"
 #include "gtestutils.h"
 
+#ifdef G_PLATFORM_ANDROID
+#include "glib-androidprivate.h"
+#endif
+
 #include "glib-java.h"
 
 static JavaVM *g_java_vm;
@@ -141,6 +145,10 @@ void
 glib_java_finalize (void)
 {
   g_return_if_fail (g_java_vm != NULL);
+#ifdef G_PLATFORM_ANDROID
+  g_android_finalize();
+#endif
+
   JNIEnv *env = g_java_get_env();
   g_return_if_fail (g_java_thread.needs_detach == FALSE);
   gboolean finished = g_ref_count_dec (&g_java_thread.rc);
@@ -224,7 +232,11 @@ g_java_enter_thread (void)
         .name = "GDK Thread Environment",
         .group = NULL
       };
+#ifdef G_PLATFORM_ANDROID
+      rc = (*g_java_vm)->AttachCurrentThread (g_java_vm, &g_java_thread.env, &args);
+#else // OpenJDK JVM
       rc = (*g_java_vm)->AttachCurrentThread (g_java_vm, (void**)&g_java_thread.env, &args);
+#endif
       if (G_UNLIKELY (rc != JNI_OK))
         {
           g_critical ("Java: Unable to attach current thread to the JVM (%d)", rc);
