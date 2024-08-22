@@ -26,6 +26,10 @@
 
 void g_android_finalize (void);
 
+gchar *g_android_get_files_dir          (void);
+gchar *g_android_get_external_files_dir (void);
+gchar *g_android_get_cache_dir          (void);
+
 void g_android_print_handler                      (const char *message);
 void g_android_printerr_handler                   (const char *message);
 void g_android_log_handler                        (const gchar *log_domain,

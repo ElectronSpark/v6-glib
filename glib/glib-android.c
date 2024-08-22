@@ -31,7 +31,15 @@ struct _GAndroidCache
   struct
   {
     jclass klass;
+    jmethodID get_files_dir;
+    jmethodID get_external_files_dir;
+    jmethodID get_cache_dir;
   } a_context;
+  struct
+  {
+    jclass klass;
+    jmethodID get_absolute_path;
+  } j_file;
 } g_android_cache;
 
 /**
@@ -80,11 +88,30 @@ g_android_set_context (jobject context)
   if (g_android_context)
     return FALSE;
 
-  GJavaScope env = g_java_enter_scope(1);
+  GJavaScope env = g_java_enter_scope(2);
   g_android_context = (*env)->NewGlobalRef(env, context);
 
   jclass context_class = (*env)->FindClass(env, "android/content/Context");
   g_android_cache.a_context.klass = (*env)->NewGlobalRef(env, context_class);
+  g_android_cache.a_context.get_files_dir = (*env)->GetMethodID(env,
+                                                                g_android_cache.a_context.klass,
+                                                                "getFilesDir",
+                                                                "()Ljava/io/File;");
+  g_android_cache.a_context.get_external_files_dir = (*env)->GetMethodID(env,
+                                                                         g_android_cache.a_context.klass,
+                                                                         "getExternalFilesDir",
+                                                                         "(Ljava/lang/String;)Ljava/io/File;");
+  g_android_cache.a_context.get_cache_dir = (*env)->GetMethodID(env,
+                                                                g_android_cache.a_context.klass,
+                                                                "getCacheDir",
+                                                                "()Ljava/io/File;");
+
+  jclass file_class = (*env)->FindClass(env, "java/io/File");
+  g_android_cache.j_file.klass = (*env)->NewGlobalRef(env, file_class);
+  g_android_cache.j_file.get_absolute_path = (*env)->GetMethodID(env,
+                                                                 g_android_cache.j_file.klass,
+                                                                 "getAbsolutePath",
+                                                                 "()Ljava/lang/String;");
 
   g_java_leave_scope(&env);
   return TRUE;
@@ -95,8 +122,50 @@ g_android_finalize (void)
 {
   JNIEnv *env = g_java_get_env();
   (*env)->DeleteGlobalRef(env, g_android_cache.a_context.klass);
+  (*env)->DeleteGlobalRef(env, g_android_cache.j_file.klass);
   (*env)->DeleteGlobalRef(env, g_android_context);
   g_android_context = NULL;
+}
+
+static gchar *
+g_android_call_dir_fun(jmethodID method, ...) {
+  GJavaThreadSentinel *sentinel = g_java_enter_thread ();
+  GJavaScope env = g_java_enter_scope(2);
+
+  va_list args;
+  va_start(args, method);
+  jobject dir = (*env)->CallObjectMethodV(env,
+                                          g_android_context,
+                                          method,
+                                          args);
+  va_end(args);
+
+  jobject path = (*env)->CallObjectMethod(env,
+                                          dir,
+                                          g_android_cache.j_file.get_absolute_path);
+  gchar* ret = g_java_jstring_to_str(path, NULL);
+  g_java_leave_scope(&env);
+  g_java_leave_thread (sentinel);
+  return ret;
+}
+
+gchar *
+g_android_get_files_dir (void)
+{
+  return g_android_call_dir_fun(g_android_cache.a_context.get_files_dir);
+}
+
+gchar *
+g_android_get_external_files_dir (void)
+{
+  return g_android_call_dir_fun(g_android_cache.a_context.get_files_dir,
+                                NULL);
+}
+
+gchar *
+g_android_get_cache_dir (void)
+{
+  return g_android_call_dir_fun(g_android_cache.a_context.get_cache_dir);
 }
 
 
