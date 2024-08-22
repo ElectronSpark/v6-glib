@@ -74,6 +74,18 @@ G_DEFINE_AUTO_CLEANUP_CLEAR_FUNC    (GJavaScope, g_java_leave_scope)
 GLIB_AVAILABLE_IN_2_86
 jclass g_java_find_class (const gchar* klass);
 
+
+GLIB_AVAILABLE_IN_2_86
+jstring g_java_strn_to_jstring (const gchar *str,
+                                gssize len);
+
+GLIB_AVAILABLE_IN_2_86
+jstring g_java_str_to_jstring  (const gchar *str);
+
+GLIB_AVAILABLE_IN_2_86
+gchar* g_java_jstring_to_str   (jstring string,
+                                gsize *len);
+
 G_END_DECLS
 
 #endif /* __GLIB_JAVA_H__ */

@@ -33,6 +33,10 @@ struct _GJavaCache
     jclass klass;
     jmethodID load_class;
   } classloader;
+  struct
+  {
+    jclass klass;
+  } char_conv_exception;
 } g_java_cache;
 
 struct _GJavaThreadSentinel
@@ -85,6 +89,9 @@ glib_java_initialize (JavaVM *vm,
                                                             "loadClass",
                                                             "(Ljava/lang/String;)Ljava/lang/Class;");
 
+  jclass char_conv_exception = (*env)->FindClass(env, "java/io/CharConversionException");
+  g_java_cache.char_conv_exception.klass = (*env)->NewGlobalRef(env, char_conv_exception);
+
   g_java_leave_scope(&env);
   return TRUE;
 }
@@ -136,6 +143,7 @@ glib_java_finalize (void)
   }
 
   (*env)->DeleteGlobalRef(env, g_java_cache.classloader.klass);
+  (*env)->DeleteGlobalRef(env, g_java_cache.char_conv_exception.klass);
 
   g_java_thread.env = NULL;
   g_java_vm = NULL;
@@ -354,10 +362,7 @@ g_java_find_class (const gchar* klass)
   jclass java_class;
   if (g_java_class_loader)
     {
-      jstring class_name = (*env)->NewStringUTF(env, klass); // Note: this breaks if klass contains
-                                                             //       high codepoints. Not sure if
-                                                             //       class names are even allowed
-                                                             //       to contain them, but still...
+      jstring class_name = g_java_str_to_jstring(klass);
       java_class = (*env)->CallObjectMethod(env,
                                             g_java_class_loader,
                                             g_java_cache.classloader.load_class,
@@ -369,4 +374,103 @@ g_java_find_class (const gchar* klass)
     }
 
   return g_java_leave_scope_with_ref(&env, java_class);
+}
+
+/**
+ * g_java_strn_to_jstring:
+ * @str: (array length=len): string to convert
+ * @len: the length of @str, -1 if @str is NULL terminated
+ *
+ * Converts an UTF-8 string into a java.lang.String object.
+ *
+ * Returns: local ref'd string object
+ * Since: 2.86
+ */
+jstring
+g_java_strn_to_jstring (const gchar *str, gssize len)
+{
+  if (!str)
+    return NULL;
+
+  GJavaScope env = g_java_enter_scope(1);
+
+  glong conv_len;
+  GError *err = NULL;
+  gunichar2* utf16 = g_utf8_to_utf16 (str, len,
+                                      NULL, &conv_len,
+                                      &err);
+  jstring ret;
+  if (err)
+    {
+      (*env)->ThrowNew(env,
+                       g_java_cache.char_conv_exception.klass,
+                       err->message);
+      g_error_free(err);
+      ret = NULL;
+    }
+  else
+    {
+      ret = (*env)->NewString(env, utf16, conv_len);
+      g_free(utf16);
+    }
+
+  return g_java_leave_scope_with_ref(&env, ret);
+}
+
+/**
+ * g_java_str_to_jstring:
+ * @str: string to convert
+ *
+ * Converts an UTF-8 string into a java.lang.String object.
+ *
+ * Returns: local ref'd string object
+ * Since: 2.86
+ */
+jstring
+g_java_str_to_jstring (const gchar *str)
+{
+  return g_java_strn_to_jstring(str, -1);
+}
+
+/**
+ * g_java_jstring_to_str:
+ * @string: the java.lang.String object
+ * @len: (out) (optional): the length of the returned string
+ *
+ * Converts a Java string into a null terminated UTF-8 string.
+ *
+ *
+ * Note: while the returned string is null terminated, there might be
+ * data past the initial NULL byte, if @string contained NUL characters.
+ * Consider using @len in such cases.
+ *
+ * Returns: (transfer full): converted UTF-8 string
+ * Since: 2.86
+ */
+gchar*
+g_java_jstring_to_str (jstring string, gsize *len)
+{
+  if (!string)
+    {
+      if (len)
+        *len = 0;
+      return NULL;
+    }
+
+  JNIEnv* env = g_java_get_env();
+
+  jsize jlen = (*env)->GetStringLength(env, string);
+  const jchar* utf16 = (*env)->GetStringChars(env, string, NULL);
+
+  GError *err = NULL;
+  gchar* utf8 = g_utf16_to_utf8(utf16, jlen, NULL, (glong*)len, &err);
+  if (err)
+    {
+      (*env)->ThrowNew(env,
+                       g_java_cache.char_conv_exception.klass,
+                       err->message);
+      g_error_free(err);
+    }
+  (*env)->ReleaseStringChars(env, string, utf16);
+  return utf8;
 }
