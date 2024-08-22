@@ -343,6 +343,17 @@ if glib_build_static_only
   glibconfig_conf.set('FFI_STATIC_BUILD', '1')
 endif
 
+have_java = false
+# TODO: this workaround should probably be moved to meson
+if host_system == 'android'
+  have_java = cc.has_header('jni.h', required: get_option('java'))
+  java_dep = declare_dependency()
+else
+  java_dep = dependency('jni', required: get_option('java'))
+  have_java = java_dep.found()
+endif
+glibconfig_conf.set('G_HAVE_JAVA_SUPPORT', have_java)
+
 # Cygwin glib port maintainers made it clear
 # (via the patches they apply) that they want no
 # part of glib W32 code, therefore we do not define
@@ -2823,6 +2834,7 @@ endif
 
 summary({
   'xattr' : xattr_dep.length() > 0,
+  'java' : have_java,
   'man-pages' : get_option('man-pages'),
   'dtrace' : enable_dtrace,
   'systemtap' : enable_systemtap,

@@ -352,6 +352,12 @@ glib_sources += files(
 
 platform_deps = []
 
+if have_java
+  glib_sources += files('glib-java.c')
+  glib_java_headers = files('glib-java.h')
+  install_headers(glib_java_headers, install_dir : glib_sub_includedir)
+endif
+
 if host_system == 'windows'
   if glib_build_shared
     glib_win_rc = configure_file(
@@ -424,6 +430,7 @@ libglib = library('glib-2.0',
     pcre2,
     platform_deps,
     thread_dep,
+    have_java ? java_dep : [],
   ],
   c_args : glib_c_args,
   objc_args : glib_c_args,
