@@ -34,12 +34,25 @@ struct _GAndroidCache
     jmethodID get_files_dir;
     jmethodID get_external_files_dir;
     jmethodID get_cache_dir;
+    jmethodID get_package_name;
+    jmethodID get_application_info;
+    jmethodID get_package_manager;
   } a_context;
+  struct
+  {
+    jclass klass;
+    jmethodID load_label;
+  } a_package_item_info;
   struct
   {
     jclass klass;
     jmethodID get_absolute_path;
   } j_file;
+  struct
+  {
+    jclass klass;
+    jmethodID to_string;
+  } j_object;
 } g_android_cache;
 
 /**
@@ -88,7 +101,7 @@ g_android_set_context (jobject context)
   if (g_android_context)
     return FALSE;
 
-  GJavaScope env = g_java_enter_scope(2);
+  GJavaScope env = g_java_enter_scope(4);
   g_android_context = (*env)->NewGlobalRef(env, context);
 
   jclass context_class = (*env)->FindClass(env, "android/content/Context");
@@ -105,6 +118,25 @@ g_android_set_context (jobject context)
                                                                 g_android_cache.a_context.klass,
                                                                 "getCacheDir",
                                                                 "()Ljava/io/File;");
+  g_android_cache.a_context.get_package_name = (*env)->GetMethodID(env,
+                                                                   g_android_cache.a_context.klass,
+                                                                   "getPackageName",
+                                                                   "()Ljava/lang/String;");
+  g_android_cache.a_context.get_application_info = (*env)->GetMethodID(env,
+                                                                       g_android_cache.a_context.klass,
+                                                                       "getApplicationInfo",
+                                                                       "()Landroid/content/pm/ApplicationInfo;");
+  g_android_cache.a_context.get_package_manager = (*env)->GetMethodID(env,
+                                                                      g_android_cache.a_context.klass,
+                                                                      "getPackageManager",
+                                                                      "()Landroid/content/pm/PackageManager;");
+
+  jclass package_item_info_class = (*env)->FindClass(env, "android/content/pm/PackageItemInfo");
+  g_android_cache.a_package_item_info.klass = (*env)->NewGlobalRef(env, package_item_info_class);
+  g_android_cache.a_package_item_info.load_label = (*env)->GetMethodID(env,
+                                                                       g_android_cache.a_package_item_info.klass,
+                                                                       "loadLabel",
+                                                                       "(Landroid/content/pm/PackageManager;)Ljava/lang/CharSequence;");
 
   jclass file_class = (*env)->FindClass(env, "java/io/File");
   g_android_cache.j_file.klass = (*env)->NewGlobalRef(env, file_class);
@@ -112,6 +144,13 @@ g_android_set_context (jobject context)
                                                                  g_android_cache.j_file.klass,
                                                                  "getAbsolutePath",
                                                                  "()Ljava/lang/String;");
+
+  jclass object_class = (*env)->FindClass(env, "java/lang/Object");
+  g_android_cache.j_object.klass = (*env)->NewGlobalRef(env, object_class);
+  g_android_cache.j_object.to_string = (*env)->GetMethodID(env,
+                                                           g_android_cache.j_object.klass,
+                                                           "toString",
+                                                           "()Ljava/lang/String;");
 
   g_java_leave_scope(&env);
   return TRUE;
@@ -122,7 +161,9 @@ g_android_finalize (void)
 {
   JNIEnv *env = g_java_get_env();
   (*env)->DeleteGlobalRef(env, g_android_cache.a_context.klass);
+  (*env)->DeleteGlobalRef(env, g_android_cache.a_package_item_info.klass);
   (*env)->DeleteGlobalRef(env, g_android_cache.j_file.klass);
+  (*env)->DeleteGlobalRef(env, g_android_cache.j_object.klass);
   (*env)->DeleteGlobalRef(env, g_android_context);
   g_android_context = NULL;
 }
@@ -166,6 +207,38 @@ gchar *
 g_android_get_cache_dir (void)
 {
   return g_android_call_dir_fun(g_android_cache.a_context.get_cache_dir);
+}
+
+
+gchar *
+g_android_get_package_name  (void)
+{
+  GJavaScope env = g_java_enter_scope(1);
+  jobject name = (*env)->CallObjectMethod(env,
+                                          g_android_context,
+                                          g_android_cache.a_context.get_package_name);
+  gchar* ret = g_java_jstring_to_str(name, NULL);
+  g_java_leave_scope(&env);
+  return ret;
+}
+
+gchar *
+g_android_get_package_label (void)
+{
+  GJavaScope env = g_java_enter_scope(3);
+  jobject pm = (*env)->CallObjectMethod(env,
+                                        g_android_context,
+                                        g_android_cache.a_context.get_package_manager);
+  jobject info = (*env)->CallObjectMethod(env,
+                                          g_android_context,
+                                          g_android_cache.a_context.get_application_info);
+  jobject label = (*env)->CallObjectMethod(env,
+                                           info,
+                                           g_android_cache.a_package_item_info.load_label,
+                                           pm);
+  gchar* ret = g_java_jstring_to_str(label, NULL);
+  g_java_leave_scope(&env);
+  return ret;
 }
 
 

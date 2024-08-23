@@ -1221,6 +1221,16 @@ g_get_application_name (void)
   if (retval)
     return retval;
 
+#ifdef G_PLATFORM_ANDROID
+  if (g_android_get_context())
+    {
+      char *app_label = g_android_get_package_label();
+      retval = g_intern_string(app_label);
+      g_free(app_label);
+      return retval;
+    }
+#endif
+
   return g_get_prgname ();
 }
 
