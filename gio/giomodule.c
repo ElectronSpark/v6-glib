@@ -72,6 +72,10 @@
 #include <AvailabilityMacros.h>
 #endif
 
+#ifdef G_PLATFORM_ANDROID
+#include "gandroidcontentfileprivate.h"
+#endif // G_PLATFORM_ANDROID
+
 #define __GLIB_H_INSIDE__
 #include "gconstructor.h"
 #undef __GLIB_H_INSIDE__
@@ -1387,6 +1391,9 @@ _g_io_modules_ensure_loaded (void)
 #ifdef G_OS_WIN32
       g_type_ensure (_g_win32_network_monitor_get_type ());
 #endif
+#ifdef G_PLATFORM_ANDROID
+      g_type_ensure (g_android_vfs_get_type ());
+#endif // G_PLATFORM_ANDROID
 
       g_once_init_leave (&loaded_dirs, TRUE);
     }

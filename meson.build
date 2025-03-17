@@ -348,7 +348,7 @@ have_java = false
 if host_system == 'android'
   have_java = cc.has_header('jni.h', required: get_option('java'))
   java_dep = declare_dependency()
-else
+elif add_languages('java', required: get_option('java'), native: false)
   java_dep = dependency('jni', required: get_option('java'))
   have_java = java_dep.found()
 endif
