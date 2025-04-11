@@ -47,6 +47,9 @@ GFile *g_android_content_file_from_uri (jobject uri);
 GIO_AVAILABLE_IN_2_86
 jobject g_android_content_file_get_uri_object (GAndroidContentFile *self);
 
+GIO_AVAILABLE_IN_2_86
+void g_android_content_file_persist (GAndroidContentFile *self, gboolean read, gboolean write);
+
 G_END_DECLS
 
 #endif // __G_ANDROID_CONTENT_FILE_H__

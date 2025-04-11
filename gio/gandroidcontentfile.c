@@ -29,8 +29,14 @@ typedef struct
   struct
   {
     jclass klass;
+    jmethodID get_application_context;
     jmethodID get_content_resolver;
   } a_context;
+  struct
+  {
+    jint flag_grant_read_uri_permission;
+    jint flag_grant_write_uri_permission;
+  } a_intent;
   struct
   {
     jclass klass;
@@ -38,6 +44,7 @@ typedef struct
     jmethodID open_asset_fd;
     jmethodID open_typed_asset_fd;
     jmethodID query;
+    jmethodID take_persistable_uri_permission;
     jstring scheme_content;
   } a_content_resolver;
   struct
@@ -152,6 +159,7 @@ g_android_content_file_get_jcache (void)
   }
 
       POPULATE_CLASS (a_context, "android/content/Context")
+      POPULATE_METHOD (a_context, get_application_context, "getApplicationContext", "()Landroid/content/Context;")
       POPULATE_METHOD (a_context, get_content_resolver, "getContentResolver", "()Landroid/content/ContentResolver;")
 
       POPULATE_CLASS (a_content_resolver, "android/content/ContentResolver")
@@ -159,6 +167,7 @@ g_android_content_file_get_jcache (void)
       POPULATE_METHOD (a_content_resolver, open_asset_fd, "openAssetFileDescriptor", "(Landroid/net/Uri;Ljava/lang/String;Landroid/os/CancellationSignal;)Landroid/content/res/AssetFileDescriptor;")
       POPULATE_METHOD (a_content_resolver, open_typed_asset_fd, "openTypedAssetFileDescriptor", "(Landroid/net/Uri;Ljava/lang/String;Landroid/os/Bundle;Landroid/os/CancellationSignal;)Landroid/content/res/AssetFileDescriptor;")
       POPULATE_METHOD (a_content_resolver, query, "query", "(Landroid/net/Uri;[Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;Ljava/lang/String;)Landroid/database/Cursor;")
+      POPULATE_METHOD (a_content_resolver, take_persistable_uri_permission, "takePersistableUriPermission", "(Landroid/net/Uri;I)V")
       POPULATE_STRING (a_content_resolver, scheme_content, "SCHEME_CONTENT")
 
       POPULATE_CLASS (a_asset_fd, "android/content/res/AssetFileDescriptor")
@@ -229,6 +238,16 @@ g_android_content_file_get_jcache (void)
 #undef POPULATE_STATIC_METHOD
 #undef POPULATE_FIELD
 #undef POPULATE_STRING
+
+#define POPULATE_FIELD_L(lclass, cclass, cname, jname) {                                \
+    jfieldID field = (*env)->GetStaticFieldID (env, lclass, jname, "I");      \
+    java_cache.cclass.cname = (*env)->GetStaticIntField (env, lclass, field); \
+  }
+      jclass a_intent = (*env)->FindClass (env, "android/content/Intent");
+      POPULATE_FIELD_L (a_intent, a_intent, flag_grant_read_uri_permission, "FLAG_GRANT_READ_URI_PERMISSION")
+      POPULATE_FIELD_L (a_intent, a_intent, flag_grant_write_uri_permission, "FLAG_GRANT_WRITE_URI_PERMISSION")
+      (*env)->DeleteLocalRef (env, a_intent);
+#undef POPULATE_FIELD_L
 
       (*env)->PopLocalFrame (env, NULL);
       g_once_init_leave_pointer (&java_cache_initialized, &java_cache);
@@ -1482,12 +1501,14 @@ g_android_content_file_from_uri (jobject uri)
                                               g_android_content_file_get_jcache ()->a_uri.klass),
                         NULL);
 
-  jobject context = g_android_get_context ();
-  g_return_val_if_fail (context != NULL, NULL);
+  g_return_val_if_fail (g_android_get_context () != NULL, NULL);
 
   GAndroidContentFile *self = g_object_new (G_TYPE_ANDROID_CONTENT_FILE, NULL);
-  self->context = (*env)->NewGlobalRef (env, context);
+  jobject app_context = (*env)->CallObjectMethod (env, g_android_get_context (),
+                                                  g_android_content_file_get_jcache ()->a_context.get_application_context);
+  self->context = (*env)->NewGlobalRef (env, app_context);
   self->child_name = NULL;
+  (*env)->DeleteLocalRef (env, app_context);
 
   if ((*env)->CallStaticBooleanMethod (env, g_android_content_file_get_jcache()->a_documents_contract.klass,
                                        g_android_content_file_get_jcache()->a_documents_contract.is_document,
@@ -1539,6 +1560,46 @@ g_android_content_file_get_uri_object (GAndroidContentFile *self)
   jstring norm_uri = (*env)->CallObjectMethod (env, self->uri,
                                                g_android_content_file_get_jcache ()->a_uri.normalize);
   return (*env)->PopLocalFrame (env, norm_uri);
+}
+
+/**
+ * g_android_content_file_persist:
+ * @self: (transfer none): the content file
+ * @read: persist read permission
+ * @write: persist write permission
+ *
+ * Try to persist permission to use the file for longer than the
+ * creating activity or process is alive.
+ *
+ * Since: 2.86
+ */
+void
+g_android_content_file_persist (GAndroidContentFile *self, gboolean read, gboolean write)
+{
+  g_return_if_fail (G_IS_ANDROID_CONTENT_FILE (self));
+  if (!g_android_content_file_make_valid (self, NULL))
+    return;
+
+  JNIEnv *env = g_java_get_env ();
+  (*env)->PushLocalFrame (env, 1);
+  jobject resolver = (*env)->CallObjectMethod (env, self->context,
+                                               g_android_content_file_get_jcache ()->a_context.get_content_resolver);
+  jint flags = 0;
+  if (read)
+    flags |= g_android_content_file_get_jcache ()->a_intent.flag_grant_read_uri_permission;
+  if (write)
+    flags |= g_android_content_file_get_jcache ()->a_intent.flag_grant_write_uri_permission;
+  (*env)->CallVoidMethod (env, resolver,
+                          g_android_content_file_get_jcache ()->a_content_resolver.take_persistable_uri_permission,
+                          self->uri,
+                          flags);
+  GError *err = NULL;
+  if (g_java_file_stream_have_io_exception (env, &err))
+    {
+      g_warning ("Failed to persist file: %s", err->message);
+      g_error_free (err);
+    }
+  (*env)->PopLocalFrame (env, NULL);
 }
 
 // Android VFS
