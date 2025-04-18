@@ -86,6 +86,36 @@ GLIB_AVAILABLE_IN_2_86
 gchar* g_java_jstring_to_str   (jstring string,
                                 gsize *len);
 
+
+/**
+ * GJavaErrorEnum:
+ * @G_JAVA_EXCEPTION: The JVM had a pending excpetion.
+ *
+ * Errors that can be encountered by glib-java.
+ *
+ * Since: 2.86
+ */
+typedef enum {
+  G_JAVA_EXCEPTION
+} GJavaErrorEnum;
+
+/**
+ * G_JAVA_ERROR:
+ *
+ * Error domain for java errors. Errors in this domain will be from the
+ * [enum@GLib.JavaErrorEnum] enumeration. See [struct@GLib.Error] for
+ * information on error domains.
+ *
+ * Since: 2.86
+ */
+#define G_JAVA_ERROR (g_java_error_quark ())
+
+GLIB_AVAILABLE_IN_2_86
+GQuark g_java_error_quark (void);
+
+GLIB_AVAILABLE_IN_2_86
+gboolean g_java_check_exception (GError **error);
+
 G_END_DECLS
 
 #endif /* __GLIB_JAVA_H__ */
