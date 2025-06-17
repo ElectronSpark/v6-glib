@@ -244,24 +244,24 @@ g_find_program_in_path (const gchar *program)
  * returns `NULL`. `program` must be a file, not a directory.
  *
  * If `program` is an absolute path, this function verifies the path exists and the path is executable. For 
- * example `g_find_program_in_path (/usr/bin/gimp)` returns the path `/usr/bin/gimp` if that file exists and 
+ * example `g_find_program_in_path ("/usr/bin/gimp")` returns the path `/usr/bin/gimp` if that file exists and 
  * if it is executable.
  *
  * If `program` is a relative path or a file name, this function searches for the file in the system's 
  * `PATH` environment variable. If `PATH` is undefined, this function searches for `program` in the 
- * following directories:
+ * following directories (this list may change over time as operating systems change):
  * 
  * * On *nix systems, in `/bin/`, `/usr/bin/`, and the current directory (in that order).
  * * On Windows systems, in the Windows, system, and current directory (in that order). This function 
- * calls `GetWindowsDirectoryW`, `GetSystemDirectoryW` and `GetModuleFileNameW` to determine the directories, 
+ * calls `GetWindowsDirectoryW()`, `GetSystemDirectoryW()` and `GetModuleFileNameW()` to determine the directories, 
  * which are typically `C:\Windows\System32\`, `C:\Windows\`, and `.`.
  * 
- * This function returns the first successful find.
+ * This function returns the first executable result.
  * 
  * On Windows, if `program` does not include a file extension, this function implicitly searches for files with
  * suffixes `.exe`, `.cmd`, `.bat`, `.com`, and the suffixes in the `PATHEXT` environment variable. For 
- * example, calling `g_find_program_in_path (winword)` is equivalent to searching for 
- * `g_find_program_in_path (winword.exe)`.
+ * example, calling `g_find_program_in_path ("winword")` is equivalent to searching for 
+ * `g_find_program_in_path ("winword.exe")`.
  *
  * Returns: (type filename) (transfer full) (nullable): a newly-allocated
  *   string with the absolute path, or %NULL
