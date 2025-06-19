@@ -263,8 +263,23 @@ g_find_program_in_path (const gchar *program)
  * `.`.
  * 
  * This function returns the first executable result.
+ *
+ * On *nix systems, this function behaves similar to `execvp()` with the
+ * following differences:
  * 
- * On Windows, if `program` does not include a file extension, this function 
+ * * `execvp()` searches paths available to the _effective_ user, while this 
+ * function searches paths available to the _real_ user. 
+ * * If the `PATH` environment variable is undefined, `execvp()` searches
+ * the directories `.`, `/bin/`, `/usr/bin/` (in that order), while this 
+ * function searches paths in the order described above.
+ * 
+ * On Windows systems, this function behaves similar to `CreateProcess()` 
+ * with the following differences:
+ * 
+ * * If `program` is not an absolute path, `CreateProcess()` searches for
+ * the executable in the current drive and the current directory, while this
+ * function searches paths in the order described above.
+ * * If `program` does not include a file extension, this function 
  * implicitly searches for files with suffixes `.exe`, `.cmd`, `.bat`, `.com`, 
  * and the suffixes in the `PATHEXT` environment variable. For example, 
  * calling `g_find_program_in_path ("winword")` is equivalent to searching for 
