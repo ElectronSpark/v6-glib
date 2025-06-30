@@ -907,7 +907,7 @@ g_key_file_load_from_fd (GKeyFile       *key_file,
  * This function will never return a [error@GLib.KeyFileError.NOT_FOUND]
  * error. If the @file is not found, [error@GLib.FileError.NOENT] is returned.
  *
- * Returns: true if a key file could be loaded, false otherwise
+ * Returns: true if a key file could be loaded; false otherwise
  *
  * Since: 2.6
  **/
@@ -959,7 +959,7 @@ g_key_file_load_from_file (GKeyFile       *key_file,
  *
  * If the object cannot be created then a [error@GLib.KeyFileError is returned.
  *
- * Returns: true if a key file could be loaded, false otherwise
+ * Returns: true if a key file could be loaded; false otherwise
  *
  * Since: 2.6
  **/
@@ -1005,6 +1005,270 @@ g_key_file_load_from_data (GKeyFile       *key_file,
 }
 
 /**
+ * g_key_file_load_unix_configurations:
+ * @key_file: an empty [struct@GLib.KeyFile] struct
+ * @project: (nullable): name of the project used as subdirectory
+ * @etc_subdir: (nullable): absolute directory path for user changed configuration files (default "/etc")
+ * @usr_subdir: (nullable): absolute directory path of vendor defined settings (often "/usr/lib")
+ * @config_name: basename of the configuration file
+ * @config_suffix (nullable): suffix of the configuration file
+ * @flags: flags from [flags@GLib.KeyFileFlags]
+ * @error: return location for a [struct@GLib.Error]
+ *
+ * Evaluating key/values of a given configuration by reading and merging all needed/available files
+ * from different directories. The rules are defined by:
+ * https://github.com/uapi-group/specifications/blob/main/specs/configuration_files_specification.md
+ * The rules are currently defined by version 1 of the specification, but may be changed to follow newer
+ * versions in the future.
+ *
+ * If no file for parsing has been found, [error@GLib.KeyFileError.NOT_FOUND] is returned.
+ * If files have been found but the OS returns an error when opening or reading a
+ * file, a [error@GLib.FileError] is returned. If there is a problem parsing
+ * files, a [error@GLib.KeyFileError] is returned.
+ *
+ * Returns: true if values could be loaded without an error; false otherwise
+ *
+ * Since: 2.86
+ *
+ **/
+
+gboolean
+g_key_file_load_unix_configurations (GKeyFile       *key_file,
+                                     const gchar    *project,
+                                     const gchar    *etc_subdir,
+                                     const gchar    *usr_subdir,
+                                     const gchar    *config_name,
+                                     const gchar    *config_suffix,
+                                     GKeyFileFlags  flags,
+                                     GError         **error)
+{
+  gchar *path = NULL;
+  gchar *scan_dir = NULL;
+  int fd = 0;
+  int cmp_ret = 0;
+  GDir *dir;
+  gchar *filename = NULL;
+  const gchar *file = NULL;
+  gboolean ret = TRUE;
+  GError *key_file_error = NULL;
+  GPtrArray *parsing_list = NULL;
+  guint index_parsing_list = 0;
+  GPtrArray *etc_list = NULL;
+  guint index_etc_list = 0;
+  GPtrArray *usr_list = NULL;
+  guint index_usr_list = 0;
+  GKeyFile *parsed_key_file = NULL;
+  gchar** groups = NULL;
+  gchar** groups_ptr = NULL;
+  gchar** keys = NULL;
+  gchar** keys_ptr = NULL;
+  gchar*  value = NULL;
+  gchar*  usr_path = NULL;
+  gchar*  etc_path = NULL;
+
+  g_return_val_if_fail (key_file != NULL, FALSE);
+  g_return_val_if_fail (config_name != NULL, FALSE);
+
+  parsing_list = g_ptr_array_new_with_free_func (g_free);
+  etc_list = g_ptr_array_new_with_free_func (g_free);
+  usr_list = g_ptr_array_new_with_free_func (g_free);
+  parsed_key_file = g_key_file_new();
+
+  /* Default is /etc */
+  if (!etc_subdir)
+    etc_subdir = "/etc";
+
+  if (!usr_subdir)
+    usr_subdir = "";
+
+  if (config_suffix)
+    filename = g_strconcat (config_name, ".", config_suffix, NULL);
+  else
+    filename = g_strdup (config_name);
+
+  if (!project)
+    project = "";
+
+  /* Evaluating first "main" file which has to be parsed */
+  path = g_build_filename (etc_subdir, project, filename, NULL);
+  fd = g_open (path, O_RDONLY | O_CLOEXEC, 0);
+  if (fd == -1)
+    {
+      g_free (path);
+      path = g_build_filename ("/run", project, filename, NULL);
+      fd = g_open (path, O_RDONLY | O_CLOEXEC, 0);
+    }
+  if (fd == -1)
+    {
+      g_free (path);
+      path = g_build_filename (usr_subdir, project, filename, NULL);
+      fd = g_open (path, O_RDONLY | O_CLOEXEC, 0);
+    }
+  if (fd != -1)
+    g_ptr_array_add (parsing_list, g_steal_pointer (&path));
+
+  g_clear_pointer (&path, g_free);
+
+  /* Evaluating all plugin files which have to be parsed and insert them into
+     the list in the correct order */
+  g_free (filename);
+  if (config_suffix)
+    filename = g_strconcat (config_name, ".", config_suffix, ".d", NULL);
+  else
+    filename = g_strconcat (config_name, ".d", NULL);
+
+  scan_dir = g_build_filename (usr_subdir, project, filename, NULL);
+  dir = g_dir_open (scan_dir, 0, &key_file_error);
+  if (dir)
+    {
+      while ((file = g_dir_read_name(dir)) != NULL)
+        {
+          g_ptr_array_add (usr_list, g_strdup (file));
+        }
+      g_dir_close (dir);
+    }
+  g_clear_error (&key_file_error);
+
+  g_free(scan_dir);
+  scan_dir = g_build_filename (etc_subdir, project, filename, NULL);
+  dir = g_dir_open (scan_dir, 0, &key_file_error);
+  if (dir)
+    {
+      while ((file = g_dir_read_name (dir)) != NULL)
+        g_ptr_array_add (etc_list, g_strdup (file));
+
+      g_clear_pointer (&dir, g_dir_close);
+    }
+  g_clear_error (&key_file_error);
+
+  g_free (scan_dir);
+
+  g_ptr_array_sort_values (usr_list, (GCompareFunc) g_strcmp0);
+  g_ptr_array_sort_values (etc_list, (GCompareFunc) g_strcmp0);
+
+  index_usr_list = 0;
+  for (index_etc_list = 0; index_etc_list < etc_list->len; index_etc_list++)
+    {
+      etc_path = (gchar *) g_ptr_array_index (etc_list, index_etc_list);
+      while (index_usr_list < usr_list->len)
+        {
+          usr_path = (gchar *) g_ptr_array_index (usr_list, index_usr_list);
+          cmp_ret = g_strcmp0 (usr_path, etc_path);
+          if (cmp_ret < 0)
+            {
+              g_ptr_array_add (parsing_list,
+                               g_build_filename (usr_subdir, project, filename, usr_path, NULL));
+              index_usr_list++;
+            }
+          else
+            {
+              if (cmp_ret == 0)
+                {
+                  index_usr_list++;
+                }
+              break;
+            }
+         }
+      g_ptr_array_add (parsing_list,
+                       g_build_filename (etc_subdir, project, filename, etc_path, NULL));
+    }
+
+  while (index_usr_list < usr_list->len)
+    {
+      g_ptr_array_add (parsing_list,
+                       g_build_filename (usr_subdir, project, filename,
+                                         (gchar *) g_ptr_array_index (usr_list, index_usr_list),
+                                         NULL));
+      index_usr_list++;
+    }
+  g_free (filename);
+
+  /* Parsing all configuration files in the correct order and merging the entries.*/
+  for (index_parsing_list = 0; index_parsing_list < parsing_list->len; index_parsing_list++)
+    {
+      fd = g_open ((gchar *) g_ptr_array_index (parsing_list, index_parsing_list), O_RDONLY | O_CLOEXEC, 0);
+      if (fd != -1)
+        {
+          if (g_key_file_load_from_fd (parsed_key_file, fd, flags, &key_file_error))
+            {
+              if (key_file_error)
+                {
+                  g_propagate_error (error, key_file_error);
+                  ret = FALSE;
+                  g_clear_error (&key_file_error);
+                }
+
+              groups = g_key_file_get_groups (parsed_key_file, NULL);
+              groups_ptr = groups;
+              while (*groups_ptr)
+                {
+                  keys_ptr = g_key_file_get_keys (parsed_key_file,
+                                                  *groups_ptr,
+                                                  NULL,
+                                                  &key_file_error);
+                  if (key_file_error)
+                    {
+                      g_propagate_error (error, key_file_error);
+                      ret = FALSE;
+                      g_clear_error (&key_file_error);
+                    }
+                  while (*keys_ptr)
+                    {
+                      value = g_key_file_get_value (parsed_key_file,
+                                                    *groups_ptr,
+                                                    *keys_ptr,
+                                                    &key_file_error);
+                      if (key_file_error)
+                        {
+                          g_propagate_error (error, key_file_error);
+                          ret = FALSE;
+                          g_clear_error (&key_file_error);
+                        }
+                      else
+                        {
+                          g_key_file_set_value (key_file,
+                                                *groups_ptr,
+                                                *keys_ptr,
+                                                value);
+                          if (key_file_error)
+                            {
+                              g_propagate_error (error, key_file_error);
+                              ret = FALSE;
+                              g_clear_error (&key_file_error);
+                            }
+                        }
+                      keys_ptr++;
+                    }
+                  g_strfreev (keys);
+                  groups_ptr++;
+                }
+              g_strfreev (groups);
+              g_key_file_free (parsed_key_file);
+              parsed_key_file = g_key_file_new ();
+            }
+          close (fd);
+        }
+    }
+
+  if (parsing_list->len <= 0)
+    {
+      g_set_error_literal (error, G_KEY_FILE_ERROR,
+                           G_KEY_FILE_ERROR_NOT_FOUND,
+                           _("Valid key file could not be "
+                             "found in search dirs"));
+      ret = FALSE;
+    }
+
+  g_key_file_free (parsed_key_file);
+  g_ptr_array_free (usr_list, TRUE);
+  g_ptr_array_free (etc_list, TRUE);
+  g_ptr_array_free (parsing_list, TRUE);
+
+  return ret;
+}
+
+
+/**
  * g_key_file_load_from_bytes:
  * @key_file: an empty [struct@GLib.KeyFile] struct
  * @bytes: a [struct@GLib.Bytes]
@@ -1016,7 +1280,7 @@ g_key_file_load_from_data (GKeyFile       *key_file,
  *
  * If the object cannot be created then a [error@GLib.KeyFileError] is returned.
  *
- * Returns: true if a key file could be loaded, false otherwise
+ * Returns: true if a key file could be loaded; false otherwise
  *
  * Since: 2.50
  **/
@@ -1063,7 +1327,7 @@ g_key_file_load_from_bytes (GKeyFile       *key_file,
  * file, a [error@GLib.FileError] is returned. If there is a problem parsing the
  * file, a [error@GLib.KeyFileError] is returned.
  *
- * Returns: true if a key file could be loaded, false otherwise
+ * Returns: true if a key file could be loaded; false otherwise
  *
  * Since: 2.14
  **/
@@ -1141,7 +1405,7 @@ g_key_file_load_from_dirs (GKeyFile       *key_file,
  * If the file could not be loaded then either a [error@GLib.FileError] or
  * [error@GLib.KeyFileError] is returned.
  *
- * Returns: true if a key file could be loaded, false otherwise
+ * Returns: true if a key file could be loaded; false otherwise
  * Since: 2.6
  **/
 gboolean
@@ -3504,7 +3768,7 @@ g_key_file_set_group_comment (GKeyFile     *key_file,
  * Note that this function prepends a `#` comment marker to
  * each line of @comment.
  *
- * Returns: true if the comment was written, false otherwise
+ * Returns: true if the comment was written; false otherwise
  *
  * Since: 2.6
  **/
@@ -3764,7 +4028,7 @@ g_key_file_get_comment (GKeyFile     *key_file,
  * If both @key and @group_name are `NULL`, then @comment will
  * be removed above the first group in the file.
  *
- * Returns: true if the comment was removed, false otherwise
+ * Returns: true if the comment was removed; false otherwise
  *
  * Since: 2.6
  **/
@@ -3792,7 +4056,7 @@ g_key_file_remove_comment (GKeyFile     *key_file,
  *
  * Looks whether the key file has the group @group_name.
  *
- * Returns: true if @group_name is a part of @key_file, false otherwise.
+ * Returns: true if @group_name is a part of @key_file; false otherwise.
  * Since: 2.6
  **/
 gboolean
@@ -3860,7 +4124,7 @@ g_key_file_has_key_full (GKeyFile     *key_file,
  * Language bindings should use [method@GLib.KeyFile.get_value] to test whether
  * a key exists.
  *
- * Returns: true if @key is a part of @group_name, false otherwise
+ * Returns: true if @key is a part of @group_name; false otherwise
  *
  * Since: 2.6
  **/
@@ -4058,7 +4322,7 @@ g_key_file_remove_group_node (GKeyFile *key_file,
  * Removes the specified group, @group_name, 
  * from the key file. 
  *
- * Returns: true if the group was removed, false otherwise
+ * Returns: true if the group was removed; false otherwise
  *
  * Since: 2.6
  **/
@@ -4128,7 +4392,7 @@ g_key_file_add_key (GKeyFile      *key_file,
  *
  * Removes @key in @group_name from the key file. 
  *
- * Returns: true if the key was removed, false otherwise
+ * Returns: true if the key was removed; false otherwise
  *
  * Since: 2.6
  **/
@@ -4756,7 +5020,7 @@ g_key_file_parse_comment_as_value (GKeyFile      *key_file,
  * This function can fail for any of the reasons that
  * [func@GLib.file_set_contents] may fail.
  *
- * Returns: true if successful, false otherwise
+ * Returns: true if successful; false otherwise
  *
  * Since: 2.40
  */
