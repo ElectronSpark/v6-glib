@@ -46,12 +46,100 @@ test_type_info_name (RepositoryFixture *fx,
   g_clear_pointer (&typeinfo, gi_base_info_unref);
 }
 
+static GITypeInfo *
+obtain_type_info (RepositoryFixture *fx)
+{
+  GICallableInfo *func_info;
+  GITypeInfo *retval;
+
+  func_info = GI_CALLABLE_INFO (gi_repository_find_by_name (fx->repository, "Gio", "bus_get_sync"));
+  g_assert_nonnull (func_info);
+
+  retval = gi_callable_info_get_return_type (func_info);
+  g_assert_nonnull (retval);
+
+  g_clear_pointer (&func_info, gi_base_info_unref);
+  return retval;
+}
+
+static void
+test_type_info_serialize_heap (RepositoryFixture *fx,
+                               const void *unused)
+{
+  GITypeInfo *type_info;
+  GITypeInfo *heap;
+  GIObjectInfo *bus_connection_info;
+  GITypelib *typelib;
+  GIBaseInfo *container;
+  uint8_t buffer[GI_TYPE_INFO_SERIALIZE_BUFFER_LENGTH];
+
+  type_info = obtain_type_info (fx);
+
+  gi_type_info_serialize (type_info, buffer, GI_TYPE_INFO_SERIALIZE_BUFFER_LENGTH);
+  typelib = gi_base_info_get_typelib (GI_BASE_INFO (type_info));
+  container = gi_base_info_get_container (GI_BASE_INFO (type_info));
+
+  heap = gi_repository_new_type_info_from_bytes (fx->repository, typelib, container, buffer);
+
+  g_assert_true (gi_base_info_equal (GI_BASE_INFO (type_info), GI_BASE_INFO (heap)));
+
+  g_clear_pointer (&type_info, gi_base_info_unref);
+
+  /* Check that several GITypeInfo methods work even after the original
+   * GITypeInfo is freed */
+  g_assert_true (gi_type_info_is_pointer (heap));
+  g_assert_cmpuint (gi_type_info_get_tag (heap), ==, GI_TYPE_TAG_INTERFACE);
+  bus_connection_info = GI_OBJECT_INFO (gi_type_info_get_interface (heap));
+  g_assert_cmpstr (gi_base_info_get_name (GI_BASE_INFO (bus_connection_info)), ==, "DBusConnection");
+  g_assert_cmpuint (gi_type_info_get_storage_type (heap), ==, GI_TYPE_TAG_INTERFACE);
+
+  g_clear_pointer (&bus_connection_info, gi_base_info_unref);
+  g_clear_pointer (&heap, gi_base_info_unref);
+}
+
+static void
+test_type_info_serialize_stack (RepositoryFixture *fx,
+                                const void *unused)
+{
+  GITypeInfo *type_info;
+  GITypeInfo stack;
+  GIObjectInfo *bus_connection_info;
+  GITypelib *typelib;
+  GIBaseInfo *container;
+  uint8_t buffer[GI_TYPE_INFO_SERIALIZE_BUFFER_LENGTH];
+
+  type_info = obtain_type_info (fx);
+
+  gi_type_info_serialize (type_info, buffer, GI_TYPE_INFO_SERIALIZE_BUFFER_LENGTH);
+  typelib = gi_base_info_get_typelib (GI_BASE_INFO (type_info));
+  container = gi_base_info_get_container (GI_BASE_INFO (type_info));
+
+  gi_repository_load_type_info_from_bytes (fx->repository, typelib, container, buffer, &stack);
+
+  g_assert_true (gi_base_info_equal (GI_BASE_INFO (type_info), GI_BASE_INFO (&stack)));
+
+  g_clear_pointer (&type_info, gi_base_info_unref);
+
+  /* Check that several GITypeInfo methods work even after the original
+   * GITypeInfo is freed */
+  g_assert_true (gi_type_info_is_pointer (&stack));
+  g_assert_cmpuint (gi_type_info_get_tag (&stack), ==, GI_TYPE_TAG_INTERFACE);
+  bus_connection_info = GI_OBJECT_INFO (gi_type_info_get_interface (&stack));
+  g_assert_cmpstr (gi_base_info_get_name (GI_BASE_INFO (bus_connection_info)), ==, "DBusConnection");
+  g_assert_cmpuint (gi_type_info_get_storage_type (&stack), ==, GI_TYPE_TAG_INTERFACE);
+
+  g_clear_pointer (&bus_connection_info, gi_base_info_unref);
+  gi_base_info_clear (&stack);
+}
+
 int
 main (int argc, char **argv)
 {
   repository_init (&argc, &argv);
 
   ADD_REPOSITORY_TEST ("/type-info/name", test_type_info_name, &typelib_load_spec_gio);
+  ADD_REPOSITORY_TEST ("/type-info/serialize/heap", test_type_info_serialize_heap, &typelib_load_spec_gio);
+  ADD_REPOSITORY_TEST ("/type-info/serialize/stack", test_type_info_serialize_stack, &typelib_load_spec_gio);
 
   return g_test_run ();
 }
