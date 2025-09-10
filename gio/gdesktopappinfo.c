@@ -119,6 +119,7 @@ struct _GDesktopAppInfo
   char *startup_wm_class;
   char **mime_types;
   char **actions;
+  char **intents;
 
   guint nodisplay       : 1;
   guint hidden          : 1;
@@ -1744,6 +1745,7 @@ g_desktop_app_info_finalize (GObject *object)
   g_strfreev (info->mime_types);
   g_free (info->app_id);
   g_strfreev (info->actions);
+  g_strfreev (info->intents);
 
   G_OBJECT_CLASS (g_desktop_app_info_parent_class)->finalize (object);
 }
@@ -2030,6 +2032,7 @@ g_desktop_app_info_load_from_keyfile (GDesktopAppInfo *info,
   info->mime_types = g_key_file_get_string_list (key_file, G_KEY_FILE_DESKTOP_GROUP, G_KEY_FILE_DESKTOP_KEY_MIME_TYPE, NULL, NULL);
   bus_activatable = g_key_file_get_boolean (key_file, G_KEY_FILE_DESKTOP_GROUP, G_KEY_FILE_DESKTOP_KEY_DBUS_ACTIVATABLE, NULL);
   info->actions = g_key_file_get_string_list (key_file, G_KEY_FILE_DESKTOP_GROUP, G_KEY_FILE_DESKTOP_KEY_ACTIONS, NULL, NULL);
+  info->intents = g_key_file_get_string_list (key_file, G_KEY_FILE_DESKTOP_GROUP, G_KEY_FILE_DESKTOP_KEY_IMPLEMENTS, NULL, NULL);
 
   /* Remove the special-case: no Actions= key just means 0 extra actions */
   if (info->actions == NULL)
@@ -2253,6 +2256,7 @@ g_desktop_app_info_dup (GAppInfo *appinfo)
   new_info->hidden = info->hidden;
   new_info->terminal = info->terminal;
   new_info->startup_notify = info->startup_notify;
+  new_info->intents = g_strdupv (info->intents);
 
   return G_APP_INFO (new_info);
 }
@@ -2401,6 +2405,36 @@ const char * const *
 g_desktop_app_info_get_keywords (GDesktopAppInfo *info)
 {
   return (const char * const *)info->keywords;
+}
+
+/**
+ * g_desktop_app_info_get_intents:
+ * @info: a [class@GioUnix.DesktopAppInfo]
+ *
+ * Gets the implemented intents from the desktop file.
+ *
+ * Returns: (transfer none): The value of the
+ *   [`Implements` key](https://specifications.freedesktop.org/desktop-entry-spec/latest/recognized-keys.html)
+ *
+ * Since: 2.86
+ */
+const char * const *
+g_desktop_app_info_get_intents (GDesktopAppInfo *info)
+{
+  return (const char * const *)info->intents;
+}
+
+gboolean
+g_desktop_app_info_has_intent (GDesktopAppInfo *info,
+                               const char      *intent)
+{
+  for (size_t i = 0; info->intents && info->intents[i]; i++)
+    {
+      if (g_str_equal (info->intents[i], intent))
+        return TRUE;
+    }
+
+  return FALSE;
 }
 
 /**
