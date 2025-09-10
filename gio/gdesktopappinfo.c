@@ -82,6 +82,7 @@
 #define FULL_NAME_KEY               "X-GNOME-FullName"
 #define KEYWORDS_KEY                "Keywords"
 #define STARTUP_WM_CLASS_KEY        "StartupWMClass"
+#define INTENT_FDO_TERMINAL1        "org.freedesktop.Terminal1"
 
 enum {
   PROP_0,
@@ -3553,6 +3554,162 @@ launch_uris_with_dbus_signal_cb (GObject      *object,
   launch_uris_with_dbus_data_free (data);
 }
 
+static GDesktopAppInfo *
+g_desktop_app_info_get_for_terminal1 (GDesktopAppInfo *info)
+{
+  GDesktopAppInfo *terminal_info;
+
+  if (!info->terminal)
+    return NULL;
+
+  terminal_info =
+    (GDesktopAppInfo *) g_desktop_app_info_get_default_for_intent (INTENT_FDO_TERMINAL1,
+                                                                   NULL);
+
+  if (terminal_info == NULL || terminal_info->app_id == NULL)
+    {
+      g_clear_object (&terminal_info);
+      return NULL;
+    }
+
+  return g_steal_pointer (&terminal_info);
+}
+
+static gboolean
+prepare_launch_uris_with_terminal1 (GDesktopAppInfo    *terminal_info,
+                                    GDesktopAppInfo    *info,
+                                    GList              *uris,
+                                    GAppLaunchContext  *launch_context,
+                                    GVariant          **call_data_out,
+                                    char              **startup_id_out,
+                                    GError            **error)
+{
+  GList *remaining_uris;
+  GVariantBuilder builder;
+
+  g_variant_builder_init_static (&builder, G_VARIANT_TYPE_TUPLE);
+
+  g_variant_builder_open (&builder, G_VARIANT_TYPE_ARRAY);
+
+  /* invocations */
+  remaining_uris = uris;
+  do
+    {
+      GVariantBuilder invocation;
+      GVariantBuilder exec;
+      GVariantBuilder env;
+      char **argv;
+      int argc;
+
+      if (!expand_application_parameters (info,
+                                          info->exec,
+                                          &remaining_uris,
+                                          &argc,
+                                          &argv,
+                                          error))
+        {
+          g_variant_builder_clear (&builder);
+          return FALSE;
+        }
+
+      g_variant_builder_init_static (&invocation, G_VARIANT_TYPE_VARDICT);
+
+      g_variant_builder_init_static (&exec, G_VARIANT_TYPE_BYTESTRING_ARRAY);
+      for (int i = 0; i < argc; i++)
+          g_variant_builder_add_value (&exec, g_variant_new_bytestring (argv[i]));
+      g_variant_builder_add (&invocation, "{sv}",
+                             "exec", g_variant_builder_end (&exec));
+
+      g_variant_builder_init_static (&env, G_VARIANT_TYPE_BYTESTRING_ARRAY);
+      g_variant_builder_add (&invocation, "{sv}",
+                             "env", g_variant_builder_end (&env));
+
+      g_variant_builder_add (&invocation, "{sv}",
+                             "working_directory",
+                             g_variant_new_bytestring (info->path ? info->path : ""));
+
+      g_variant_builder_add_value (&builder, g_variant_builder_end (&invocation));
+
+      g_clear_pointer (&argv, g_strfreev);
+    }
+  while (remaining_uris != NULL);
+
+  g_variant_builder_close (&builder);
+
+  /* desktop file path (desktop_entry) */
+  g_variant_builder_add_value (&builder, g_variant_new_bytestring (info->filename));
+
+  /* options */
+  g_variant_builder_open (&builder, G_VARIANT_TYPE_VARDICT);
+  g_variant_builder_close (&builder);
+
+  /* platform data */
+  {
+    GVariant *platform_data;
+
+    platform_data = g_desktop_app_info_make_platform_data (terminal_info,
+                                                           uris,
+                                                           launch_context);
+
+    if (startup_id_out)
+      {
+        GVariantDict dict;
+
+        g_variant_dict_init (&dict, platform_data);
+        g_variant_dict_lookup (&dict, "desktop-startup-id", "s", startup_id_out);
+        g_variant_dict_clear (&dict);
+      }
+
+    g_variant_builder_add_value (&builder, platform_data);
+  }
+
+  *call_data_out = g_variant_builder_end (&builder);
+
+  return TRUE;
+}
+
+static gboolean
+launch_uris_with_terminal1 (GDesktopAppInfo     *terminal_info,
+                            GDesktopAppInfo     *info,
+                            GDBusConnection     *session_bus,
+                            GVariant            *call_data,
+                            char                *startup_id,
+                            GAppLaunchContext   *launch_context,
+                            GCancellable        *cancellable,
+                            GAsyncReadyCallback  callback,
+                            gpointer             user_data)
+{
+  LaunchUrisWithDBusData *data;
+  char *object_path;
+
+  if (launch_context)
+    emit_launch_started (launch_context, terminal_info, startup_id);
+
+  data = g_new0 (LaunchUrisWithDBusData, 1);
+  data->info = g_object_ref (info);
+  data->callback = callback;
+  data->user_data = user_data;
+  data->launch_context = launch_context ? g_object_ref (launch_context) : NULL;
+  data->startup_id = g_steal_pointer (&startup_id);
+
+  object_path = object_path_from_appid (terminal_info->app_id);
+  g_dbus_connection_call (session_bus,
+                          terminal_info->app_id,
+                          object_path,
+                          INTENT_FDO_TERMINAL1,
+                          "LaunchCommand",
+                          g_steal_pointer (&call_data),
+                          NULL,
+                          G_DBUS_CALL_FLAGS_NONE,
+                          -1,
+                          cancellable,
+                          launch_uris_with_dbus_signal_cb,
+                          g_steal_pointer (&data));
+  g_free (object_path);
+
+  return TRUE;
+}
+
 static void
 launch_uris_with_dbus (GDesktopAppInfo    *info,
                        GDBusConnection    *session_bus,
@@ -3654,11 +3811,37 @@ g_desktop_app_info_launch_uris_internal (GAppInfo                   *appinfo,
 {
   GDesktopAppInfo *info = G_DESKTOP_APP_INFO (appinfo);
   GDBusConnection *session_bus;
+  GDesktopAppInfo *terminal_info;
   gboolean success = TRUE;
 
   session_bus = g_bus_get_sync (G_BUS_TYPE_SESSION, NULL, NULL);
 
-  if (session_bus && info->app_id)
+  terminal_info = g_desktop_app_info_get_for_terminal1 (info);
+
+  if (session_bus && terminal_info)
+    {
+      GVariant *call_data;
+      char *startup_id;
+
+      success = prepare_launch_uris_with_terminal1 (terminal_info,
+                                                    info,
+                                                    uris,
+                                                    launch_context,
+                                                    &call_data,
+                                                    &startup_id,
+                                                    error);
+      if (success)
+        {
+          launch_uris_with_terminal1 (terminal_info,
+                                      info,
+                                      session_bus,
+                                      g_steal_pointer (&call_data),
+                                      g_steal_pointer (&startup_id),
+                                      launch_context,
+                                      NULL, NULL, NULL);
+        }
+    }
+  else if (session_bus && info->app_id)
     {
       /* This is non-blocking API. Similar to launching via fork()/exec()
        * we don't wait around to see if the program crashed during startup.
@@ -3695,6 +3878,8 @@ g_desktop_app_info_launch_uris_internal (GAppInfo                   *appinfo,
       g_dbus_connection_flush (session_bus, NULL, NULL, NULL);
       g_object_unref (session_bus);
     }
+
+  g_clear_object (&terminal_info);
 
   return success;
 }
@@ -3773,11 +3958,45 @@ launch_uris_bus_get_cb (GObject      *object,
   LaunchUrisData *data = g_task_get_task_data (task);
   GCancellable *cancellable = g_task_get_cancellable (task);
   GDBusConnection *session_bus;
+  GDesktopAppInfo *terminal_info;
   GError *local_error = NULL;
 
   session_bus = g_bus_get_finish (result, NULL);
 
-  if (session_bus && info->app_id)
+  terminal_info = g_desktop_app_info_get_for_terminal1 (info);
+
+  if (session_bus && terminal_info)
+    {
+      gboolean success;
+      GVariant *call_data;
+      char *startup_id;
+
+      success = prepare_launch_uris_with_terminal1 (terminal_info,
+                                                    info,
+                                                    data->uris,
+                                                    data->context,
+                                                    &call_data,
+                                                    &startup_id,
+                                                    &local_error);
+      if (!success)
+        {
+          g_task_return_error (task, g_steal_pointer (&local_error));
+          g_object_unref (task);
+        }
+      else
+        {
+          launch_uris_with_terminal1 (terminal_info,
+                                      info,
+                                      session_bus,
+                                      g_steal_pointer (&call_data),
+                                      g_steal_pointer (&startup_id),
+                                      data->context,
+                                      cancellable,
+                                      launch_uris_with_dbus_cb,
+                                      g_steal_pointer (&task));
+        }
+    }
+  else if (session_bus && info->app_id)
     {
       /* FIXME: The g_document_portal_add_documents() function, which is called
        * from the g_desktop_app_info_launch_uris_with_dbus() function, still
@@ -3822,6 +4041,7 @@ launch_uris_bus_get_cb (GObject      *object,
         }
     }
 
+  g_clear_object (&terminal_info);
   g_clear_object (&session_bus);
 }
 
