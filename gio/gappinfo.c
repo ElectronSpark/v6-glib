@@ -1278,11 +1278,14 @@ g_app_info_launch_default_for_uri (const char         *uri,
   if (parsed)
     scheme = g_uri_get_scheme (parsed);
 
+  if (g_strcmp0 (scheme, "http") == 0 || g_strcmp0 (scheme, "https") == 0)
+    app_info = g_app_info_get_default_for_uri_http (parsed);
+
   /* g_file_query_default_handler() calls
    * g_app_info_get_default_for_uri_scheme() too, but we have to do it
    * here anyway in case GFile can't parse @uri correctly.
    */
-  if (scheme && scheme[0] != '\0')
+  if (!app_info && scheme && scheme[0] != '\0')
     app_info = g_app_info_get_default_for_uri_scheme (scheme);
 
   if (!app_info)
@@ -1521,6 +1524,38 @@ launch_default_app_for_uri_scheme_cb (GObject      *object,
     }
 }
 
+static void
+launch_default_app_for_uri_http_cb (GObject      *object,
+                                    GAsyncResult *result,
+                                    gpointer      user_data)
+{
+  GTask *task = G_TASK (user_data);
+  GAppInfo *app_info;
+
+  app_info = g_app_info_get_default_for_uri_http_finish (result, NULL);
+
+  if (!app_info)
+    {
+      LaunchDefaultForUriData *data;
+      const char *scheme;
+      GCancellable *cancellable;
+
+      data = g_task_get_task_data (task);
+      scheme = g_uri_get_scheme (data->parsed);
+      cancellable = g_task_get_cancellable (task);
+
+      g_app_info_get_default_for_uri_scheme_async (scheme,
+                                                   cancellable,
+                                                   launch_default_app_for_uri_scheme_cb,
+                                                   g_steal_pointer (&task));
+    }
+  else
+    {
+      launch_default_for_uri_launch_uris (g_steal_pointer (&task),
+                                          g_steal_pointer (&app_info));
+    }
+}
+
 /**
  * g_app_info_launch_default_for_uri_async:
  * @uri: the uri to show
@@ -1572,10 +1607,24 @@ g_app_info_launch_default_for_uri_async (const char          *uri,
 
   if (scheme && scheme[0] != '\0')
     {
-      g_app_info_get_default_for_uri_scheme_async (scheme,
-                                                   cancellable,
-                                                   launch_default_app_for_uri_scheme_cb,
-                                                   g_steal_pointer (&task));
+      if (g_strcmp0 (scheme, "http") == 0 || g_strcmp0 (scheme, "https") == 0)
+        {
+          g_app_info_get_default_for_uri_http_async (parsed,
+                                                     cancellable,
+                                                     launch_default_app_for_uri_http_cb,
+                                                     g_steal_pointer (&task));
+        }
+      else
+        {
+          /* g_file_query_default_handler_async() calls
+           * g_app_info_get_default_for_uri_scheme() too, but we have to do it
+           * here anyway in case GFile can't parse @uri correctly.
+           */
+          g_app_info_get_default_for_uri_scheme_async (scheme,
+                                                       cancellable,
+                                                       launch_default_app_for_uri_scheme_cb,
+                                                       g_steal_pointer (&task));
+        }
     }
   else
     {
