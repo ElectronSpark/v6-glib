@@ -1149,6 +1149,104 @@ g_app_info_get_default_for_type_finish (GAsyncResult  *result,
   return g_task_propagate_pointer (G_TASK (result), error);
 }
 
+static void
+get_default_for_http_thread (GTask        *task,
+                             gpointer      object,
+                             gpointer      task_data,
+                             GCancellable *cancellable)
+{
+  GUri *uri = task_data;
+  GAppInfo *info;
+
+  info = g_app_info_get_default_for_uri_http (uri);
+
+  if (!info)
+    {
+      g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
+                               _("Failed to find default application for "
+                                 "http URI"));
+      return;
+    }
+
+  g_task_return_pointer (task, g_steal_pointer (&info), g_object_unref);
+}
+
+/**
+ * g_app_info_get_default_for_uri_http_async:
+ * @uri: a [class@Gio.Uri].
+ * @cancellable: (nullable): a [class@Gio.Cancellable]
+ * @callback: (scope async) (nullable): a [type@Gio.AsyncReadyCallback] to call
+ *   when the request is done
+ * @user_data: (nullable): data to pass to @callback
+ *
+ * Asynchronously gets the default application for handling the specific
+ * http URI.
+ *
+ * Since: 2.86
+ */
+void
+g_app_info_get_default_for_uri_http_async (GUri                *uri,
+                                           GCancellable        *cancellable,
+                                           GAsyncReadyCallback  callback,
+                                           gpointer             user_data)
+{
+  GTask *task;
+
+  g_return_if_fail (uri != NULL);
+  g_return_if_fail (cancellable == NULL || G_IS_CANCELLABLE (cancellable));
+
+  task = g_task_new (NULL, cancellable, callback, user_data);
+  g_task_set_source_tag (task, g_app_info_get_default_for_uri_http_async);
+  g_task_set_task_data (task, g_uri_ref (uri), (GDestroyNotify) g_uri_unref);
+  g_task_set_check_cancellable (task, TRUE);
+  g_task_run_in_thread (task, get_default_for_http_thread);
+  g_object_unref (task);
+}
+
+/**
+ * g_app_info_get_default_for_uri_http_finish:
+ * @result: the async result
+ *
+ * Finishes a default [iface@Gio.AppInfo] lookup started by
+ * [func@Gio.AppInfo.get_default_for_uri_http_async].
+ *
+ * If no [iface@Gio.AppInfo] is found, then @error will be set to
+ * [error@Gio.IOErrorEnum.NOT_FOUND].
+ *
+ * Returns: (transfer full): [iface@Gio.AppInfo] for given @uri or
+ *   `NULL` on error.
+ *
+ * Since: 2.86
+ */
+GAppInfo *
+g_app_info_get_default_for_uri_http_finish (GAsyncResult  *result,
+                                            GError       **error)
+{
+  g_return_val_if_fail (g_task_is_valid (result, NULL), NULL);
+  g_return_val_if_fail (g_task_get_source_tag (G_TASK (result)) ==
+                        g_app_info_get_default_for_uri_http_async, NULL);
+  g_return_val_if_fail (error == NULL || *error == NULL, NULL);
+
+  return g_task_propagate_pointer (G_TASK (result), error);
+}
+
+/**
+ * g_app_info_get_default_for_uri_http:
+ * @uri: a [class@Gio.Uri].
+ *
+ * Gets the default application for handling the specific http URI.
+ *
+ * Returns: (transfer full) (nullable): [iface@Gio.AppInfo] for given
+ *   @uri or `NULL` on error.
+ */
+GAppInfo *
+g_app_info_get_default_for_uri_http (GUri *uri)
+{
+  g_return_val_if_fail (uri != NULL, NULL);
+
+  return g_app_info_get_default_for_uri_http_impl (uri);
+}
+
 /**
  * g_app_info_launch_default_for_uri:
  * @uri: the uri to show

@@ -83,6 +83,7 @@
 #define KEYWORDS_KEY                "Keywords"
 #define STARTUP_WM_CLASS_KEY        "StartupWMClass"
 #define INTENT_FDO_TERMINAL1        "org.freedesktop.Terminal1"
+#define INTENT_FDO_DEEPLINK1        "org.freedesktop.handler.Deeplink1"
 
 enum {
   PROP_0,
@@ -5278,6 +5279,93 @@ g_app_info_get_default_for_uri_scheme_impl (const char *uri_scheme)
   g_free (content_type);
 
   return app_info;
+}
+
+static char *
+get_match_path_for_uri (GUri *uri)
+{
+  GString *path_ref = NULL;
+  const char *path = NULL;
+  const char *query = NULL;
+  const char *fragment = NULL;
+
+  /* Compose an absolute-ref ("/" path [ "?" query ] [ "#" fragment ]) */
+
+  path = g_uri_get_path (uri);
+  if (path != NULL && *path != '\0')
+    path_ref = g_string_new (path);
+  else
+    path_ref = g_string_new ("/");
+
+  query = g_uri_get_query (uri);
+  if (query != NULL && *query != '\0')
+    g_string_append_printf (path_ref, "?%s", query);
+
+  fragment = g_uri_get_fragment (uri);
+  if (fragment != NULL && *fragment != '\0')
+    g_string_append_printf (path_ref, "#%s", fragment);
+
+  return g_string_free (path_ref, FALSE);
+}
+
+GAppInfo *
+g_app_info_get_default_for_uri_http_impl (GUri *uri)
+{
+  GAppInfo *app_info = NULL;
+  GList *apps;
+  const gchar *host;
+  const gchar *scheme;
+  gchar *uri_path = NULL;
+
+  scheme = g_uri_get_scheme (uri);
+  if (!g_str_equal (scheme, "http") && !g_str_equal (scheme, "https"))
+    {
+      g_debug ("Could not get a default for an http URI because "
+               "the scheme is not http or https");
+      return NULL;
+    }
+
+  host = g_uri_get_host (uri);
+  if (host == NULL)
+    {
+      g_debug ("Could not get a default for an http URI because "
+               "the URI contains no host");
+      return NULL;
+    }
+
+  apps = g_desktop_app_info_get_for_intent (INTENT_FDO_DEEPLINK1, host);
+
+  if (apps)
+    uri_path = get_match_path_for_uri (uri);
+
+  for (GList *l = apps; l != NULL; l = l->next)
+    {
+      GDesktopAppInfo *candidate = l->data;
+      GStrv patterns;
+
+      patterns = g_key_file_get_string_list (candidate->keyfile,
+                                             INTENT_FDO_DEEPLINK1,
+                                             host,
+                                             NULL, NULL);
+
+      for (gsize i = 0; patterns[i]; i++)
+        {
+          if (g_pattern_match_simple (patterns[i], uri_path))
+            {
+              app_info = g_object_ref (G_APP_INFO (candidate));
+              break;
+            }
+        }
+      g_clear_pointer (&patterns, g_strfreev);
+
+      if (app_info)
+        break;
+    }
+
+  g_list_free_full (apps, g_object_unref);
+  g_clear_pointer (&uri_path, g_free);
+
+  return g_steal_pointer (&app_info);
 }
 
 /* "Get all" API {{{2 */

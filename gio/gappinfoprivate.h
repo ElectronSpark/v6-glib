@@ -37,5 +37,6 @@ GAppInfo *g_app_info_get_default_for_type_impl (const char *content_type,
                                                 gboolean    must_support_uris);
 GAppInfo *g_app_info_get_default_for_uri_scheme_impl (const char *uri_scheme);
 GList *g_app_info_get_all_impl (void);
+GAppInfo *g_app_info_get_default_for_uri_http_impl (GUri *uri);
 
 #endif /* __G_APP_INFO_PRIVATE_H__ */
