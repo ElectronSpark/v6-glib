@@ -1267,18 +1267,23 @@ g_app_info_launch_default_for_uri (const char         *uri,
                                    GAppLaunchContext  *launch_context,
                                    GError            **error)
 {
-  char *uri_scheme;
+  GUri *parsed;
+  const char *scheme = NULL;
   GAppInfo *app_info = NULL;
   gboolean res = FALSE;
+
+  g_return_val_if_fail (uri != NULL, FALSE);
+
+  parsed = g_uri_parse (uri, G_URI_FLAGS_NONE, NULL);
+  if (parsed)
+    scheme = g_uri_get_scheme (parsed);
 
   /* g_file_query_default_handler() calls
    * g_app_info_get_default_for_uri_scheme() too, but we have to do it
    * here anyway in case GFile can't parse @uri correctly.
    */
-  uri_scheme = g_uri_parse_scheme (uri);
-  if (uri_scheme && uri_scheme[0] != '\0')
-    app_info = g_app_info_get_default_for_uri_scheme (uri_scheme);
-  g_free (uri_scheme);
+  if (scheme && scheme[0] != '\0')
+    app_info = g_app_info_get_default_for_uri_scheme (scheme);
 
   if (!app_info)
     {
@@ -1333,12 +1338,15 @@ g_app_info_launch_default_for_uri (const char         *uri,
     }
 #endif
 
+  g_clear_pointer (&parsed, g_uri_unref);
+
   return res;
 }
 
 typedef struct
 {
   gchar *uri;
+  GUri *parsed;
   GAppLaunchContext *context;
 } LaunchDefaultForUriData;
 
@@ -1347,6 +1355,7 @@ launch_default_for_uri_data_free (LaunchDefaultForUriData *data)
 {
   g_free (data->uri);
   g_clear_object (&data->context);
+  g_clear_pointer (&data->parsed, g_uri_unref);
   g_free (data);
 }
 
@@ -1492,9 +1501,9 @@ launch_default_app_for_default_handler (GTask *task)
 }
 
 static void
-launch_default_app_for_uri_cb (GObject      *object,
-                               GAsyncResult *result,
-                               gpointer      user_data)
+launch_default_app_for_uri_scheme_cb (GObject      *object,
+                                      GAsyncResult *result,
+                                      gpointer      user_data)
 {
   GTask *task = G_TASK (user_data);
   GAppInfo *app_info;
@@ -1541,29 +1550,31 @@ g_app_info_launch_default_for_uri_async (const char          *uri,
                                          gpointer             user_data)
 {
   GTask *task;
-  char *uri_scheme;
+  GUri *parsed;
+  const char *scheme = NULL;
   LaunchDefaultForUriData *data;
 
   g_return_if_fail (uri != NULL);
+
+  parsed = g_uri_parse (uri, G_URI_FLAGS_NONE, NULL);
+  if (parsed)
+    scheme = g_uri_get_scheme (parsed);
 
   task = g_task_new (NULL, cancellable, callback, user_data);
   g_task_set_source_tag (task, g_app_info_launch_default_for_uri_async);
 
   data = g_new (LaunchDefaultForUriData, 1);
   data->uri = g_strdup (uri);
+  data->parsed = parsed ? g_uri_ref (parsed) : NULL;
   data->context = (context != NULL) ? g_object_ref (context) : NULL;
-  g_task_set_task_data (task, g_steal_pointer (&data), (GDestroyNotify) launch_default_for_uri_data_free);
+  g_task_set_task_data (task, g_steal_pointer (&data),
+                        (GDestroyNotify) launch_default_for_uri_data_free);
 
-  /* g_file_query_default_handler_async() calls
-   * g_app_info_get_default_for_uri_scheme() too, but we have to do it
-   * here anyway in case GFile can't parse @uri correctly.
-   */
-  uri_scheme = g_uri_parse_scheme (uri);
-  if (uri_scheme && uri_scheme[0] != '\0')
+  if (scheme && scheme[0] != '\0')
     {
-      g_app_info_get_default_for_uri_scheme_async (uri_scheme,
+      g_app_info_get_default_for_uri_scheme_async (scheme,
                                                    cancellable,
-                                                   launch_default_app_for_uri_cb,
+                                                   launch_default_app_for_uri_scheme_cb,
                                                    g_steal_pointer (&task));
     }
   else
@@ -1571,7 +1582,7 @@ g_app_info_launch_default_for_uri_async (const char          *uri,
       launch_default_app_for_default_handler (g_steal_pointer (&task));
     }
 
-  g_free (uri_scheme);
+  g_clear_pointer (&parsed, g_uri_unref);
 }
 
 /**
