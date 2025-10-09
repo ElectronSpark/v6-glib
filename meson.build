@@ -2683,18 +2683,42 @@ if enable_systemtap
   stp_cdata.set('LT_REVISION', interface_age)
 endif
 
+pkg = import('pkgconfig')
+windows = import('windows')
+gnome = import('gnome')
+
+subdir('tools')
+subdir('glib')
+subdir('gobject')
+subdir('gthread')
+subdir('gmodule')
+subdir('gio')
+
 # Introspection
 #
 # We depend on g-ir-scanner from gobject-introspection-1.0 to scan our source
 # to build GIR files. We then use gi-compile-repository from the local build
 # tree to build the typelibs (rather than using g-ir-compiler from
-# gobject-introspection). However, we use Meson’s gnome.generate_gir() function,
-# which adds a hard dependency on gobject-introspection-1.0, so we’d better
-# check for that here.
+# gobject-introspection).
+#
+# To avoid cyclic dependencies when using gobject-introspection subproject,
+# this must be after we declared glib, gobject and gio libraries, but before
+# we use gnome.generate_gir() in girepository subdir.
+#
+# Note that we cannot check for g-ir-scanner's version because if it fallbacks
+# to g-i subproject it won't be built yet.
+gir_scanner = find_program('g-ir-scanner',
+  required: get_option('introspection'),
+  default_options: {
+    'build_girepository': false,
+    'build_glib_gir': false,
+  },
+)
+
+# Meson requires gobject-introspection-1.0 to use gnome.generate_gir()
 gobject_introspection_required_version = '>= 1.80.0'
-gir_scanner = find_program('g-ir-scanner', required: get_option('introspection'), version: gobject_introspection_required_version)
 gobject_introspection = dependency('gobject-introspection-1.0', required: get_option('introspection'), version: gobject_introspection_required_version)
-enable_gir = get_option('introspection').allowed() and gir_scanner.found() and gobject_introspection.found() and meson.can_run_host_binaries()
+enable_gir = gir_scanner.found() and gobject_introspection.found() and meson.can_run_host_binaries()
 
 if get_option('introspection').enabled() and not meson.can_run_host_binaries()
   error('Running binaries on the build host needs to be supported to build with -Dintrospection=enabled')
@@ -2709,17 +2733,15 @@ if gobject_introspection.version().version_compare('>=1.83.2')
   ]
 endif
 
-pkg = import('pkgconfig')
-windows = import('windows')
-gnome = import('gnome')
-
-subdir('tools')
-subdir('glib')
-subdir('gobject')
-subdir('gthread')
-subdir('gmodule')
-subdir('gio')
 subdir('girepository')
+
+# Those dependency objects have been wrapped to provide their corresponding GIR.
+meson.override_dependency('glib-2.0', libglib_dep)
+meson.override_dependency('gmodule-2.0', libgmodule_dep)
+meson.override_dependency('gobject-2.0', libgobject_dep)
+meson.override_dependency('gio-2.0', libgio_dep)
+meson.override_dependency('girepository-2.0', libgirepository_dep)
+
 subdir('fuzzing')
 if get_option('tests')
   subdir('tests')

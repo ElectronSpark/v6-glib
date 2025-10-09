@@ -166,7 +166,7 @@ libgobject_dep = declare_dependency(link_with : libgobject,
   sources : [gobject_visibility_h, glib_enumtypes_h],
   dependencies : [libglib_dep],
 )
-meson.override_dependency('gobject-2.0', libgobject_dep)
+meson.override_dependency('gobject-2.0-no-gir', libgobject_dep)
 
 gobject_query = executable('gobject-query', 'gobject-query.c',
   install : true,
