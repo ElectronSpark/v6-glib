@@ -382,3 +382,19 @@ libgirepository_dep = declare_dependency(
   sources: [girepository_gir[0]],
   dependencies: libgirepository_dep,
 )
+
+if gobject_introspection.type_name() == 'internal'
+  # FIXME: Move those gir files into glib
+  gi_subp = subproject('gobject-introspection')
+  gir_files = gi_subp.get_variable('gir_files')
+  foreach gir: gir_files
+    custom_target(
+      input: gir['file'],
+      output: '@BASENAME@.typelib',
+      command: [gicompilerepository, '-o', '@OUTPUT@', '@INPUT@', '--includedir', meson.current_build_dir()],
+      depends: [gobject_gir[0]],
+      install: true,
+      install_dir: get_option('libdir') / 'girepository-1.0',
+    )
+  endforeach
+endif
