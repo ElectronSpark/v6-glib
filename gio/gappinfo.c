@@ -1149,6 +1149,104 @@ g_app_info_get_default_for_type_finish (GAsyncResult  *result,
   return g_task_propagate_pointer (G_TASK (result), error);
 }
 
+static void
+get_default_for_http_thread (GTask        *task,
+                             gpointer      object,
+                             gpointer      task_data,
+                             GCancellable *cancellable)
+{
+  GUri *uri = task_data;
+  GAppInfo *info;
+
+  info = g_app_info_get_default_for_uri_http (uri);
+
+  if (!info)
+    {
+      g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
+                               _("Failed to find default application for "
+                                 "http URI"));
+      return;
+    }
+
+  g_task_return_pointer (task, g_steal_pointer (&info), g_object_unref);
+}
+
+/**
+ * g_app_info_get_default_for_uri_http_async:
+ * @uri: a [class@Gio.Uri].
+ * @cancellable: (nullable): a [class@Gio.Cancellable]
+ * @callback: (scope async) (nullable): a [type@Gio.AsyncReadyCallback] to call
+ *   when the request is done
+ * @user_data: (nullable): data to pass to @callback
+ *
+ * Asynchronously gets the default application for handling the specific
+ * http URI.
+ *
+ * Since: 2.86
+ */
+void
+g_app_info_get_default_for_uri_http_async (GUri                *uri,
+                                           GCancellable        *cancellable,
+                                           GAsyncReadyCallback  callback,
+                                           gpointer             user_data)
+{
+  GTask *task;
+
+  g_return_if_fail (uri != NULL);
+  g_return_if_fail (cancellable == NULL || G_IS_CANCELLABLE (cancellable));
+
+  task = g_task_new (NULL, cancellable, callback, user_data);
+  g_task_set_source_tag (task, g_app_info_get_default_for_uri_http_async);
+  g_task_set_task_data (task, g_uri_ref (uri), (GDestroyNotify) g_uri_unref);
+  g_task_set_check_cancellable (task, TRUE);
+  g_task_run_in_thread (task, get_default_for_http_thread);
+  g_object_unref (task);
+}
+
+/**
+ * g_app_info_get_default_for_uri_http_finish:
+ * @result: the async result
+ *
+ * Finishes a default [iface@Gio.AppInfo] lookup started by
+ * [func@Gio.AppInfo.get_default_for_uri_http_async].
+ *
+ * If no [iface@Gio.AppInfo] is found, then @error will be set to
+ * [error@Gio.IOErrorEnum.NOT_FOUND].
+ *
+ * Returns: (transfer full): [iface@Gio.AppInfo] for given @uri or
+ *   `NULL` on error.
+ *
+ * Since: 2.86
+ */
+GAppInfo *
+g_app_info_get_default_for_uri_http_finish (GAsyncResult  *result,
+                                            GError       **error)
+{
+  g_return_val_if_fail (g_task_is_valid (result, NULL), NULL);
+  g_return_val_if_fail (g_task_get_source_tag (G_TASK (result)) ==
+                        g_app_info_get_default_for_uri_http_async, NULL);
+  g_return_val_if_fail (error == NULL || *error == NULL, NULL);
+
+  return g_task_propagate_pointer (G_TASK (result), error);
+}
+
+/**
+ * g_app_info_get_default_for_uri_http:
+ * @uri: a [class@Gio.Uri].
+ *
+ * Gets the default application for handling the specific http URI.
+ *
+ * Returns: (transfer full) (nullable): [iface@Gio.AppInfo] for given
+ *   @uri or `NULL` on error.
+ */
+GAppInfo *
+g_app_info_get_default_for_uri_http (GUri *uri)
+{
+  g_return_val_if_fail (uri != NULL, NULL);
+
+  return g_app_info_get_default_for_uri_http_impl (uri);
+}
+
 /**
  * g_app_info_launch_default_for_uri:
  * @uri: the uri to show
@@ -1169,18 +1267,26 @@ g_app_info_launch_default_for_uri (const char         *uri,
                                    GAppLaunchContext  *launch_context,
                                    GError            **error)
 {
-  char *uri_scheme;
+  GUri *parsed;
+  const char *scheme = NULL;
   GAppInfo *app_info = NULL;
   gboolean res = FALSE;
+
+  g_return_val_if_fail (uri != NULL, FALSE);
+
+  parsed = g_uri_parse (uri, G_URI_FLAGS_NONE, NULL);
+  if (parsed)
+    scheme = g_uri_get_scheme (parsed);
+
+  if (g_strcmp0 (scheme, "http") == 0 || g_strcmp0 (scheme, "https") == 0)
+    app_info = g_app_info_get_default_for_uri_http (parsed);
 
   /* g_file_query_default_handler() calls
    * g_app_info_get_default_for_uri_scheme() too, but we have to do it
    * here anyway in case GFile can't parse @uri correctly.
    */
-  uri_scheme = g_uri_parse_scheme (uri);
-  if (uri_scheme && uri_scheme[0] != '\0')
-    app_info = g_app_info_get_default_for_uri_scheme (uri_scheme);
-  g_free (uri_scheme);
+  if (!app_info && scheme && scheme[0] != '\0')
+    app_info = g_app_info_get_default_for_uri_scheme (scheme);
 
   if (!app_info)
     {
@@ -1235,12 +1341,15 @@ g_app_info_launch_default_for_uri (const char         *uri,
     }
 #endif
 
+  g_clear_pointer (&parsed, g_uri_unref);
+
   return res;
 }
 
 typedef struct
 {
   gchar *uri;
+  GUri *parsed;
   GAppLaunchContext *context;
 } LaunchDefaultForUriData;
 
@@ -1249,6 +1358,7 @@ launch_default_for_uri_data_free (LaunchDefaultForUriData *data)
 {
   g_free (data->uri);
   g_clear_object (&data->context);
+  g_clear_pointer (&data->parsed, g_uri_unref);
   g_free (data);
 }
 
@@ -1394,9 +1504,9 @@ launch_default_app_for_default_handler (GTask *task)
 }
 
 static void
-launch_default_app_for_uri_cb (GObject      *object,
-                               GAsyncResult *result,
-                               gpointer      user_data)
+launch_default_app_for_uri_scheme_cb (GObject      *object,
+                                      GAsyncResult *result,
+                                      gpointer      user_data)
 {
   GTask *task = G_TASK (user_data);
   GAppInfo *app_info;
@@ -1406,6 +1516,38 @@ launch_default_app_for_uri_cb (GObject      *object,
   if (!app_info)
     {
       launch_default_app_for_default_handler (g_steal_pointer (&task));
+    }
+  else
+    {
+      launch_default_for_uri_launch_uris (g_steal_pointer (&task),
+                                          g_steal_pointer (&app_info));
+    }
+}
+
+static void
+launch_default_app_for_uri_http_cb (GObject      *object,
+                                    GAsyncResult *result,
+                                    gpointer      user_data)
+{
+  GTask *task = G_TASK (user_data);
+  GAppInfo *app_info;
+
+  app_info = g_app_info_get_default_for_uri_http_finish (result, NULL);
+
+  if (!app_info)
+    {
+      LaunchDefaultForUriData *data;
+      const char *scheme;
+      GCancellable *cancellable;
+
+      data = g_task_get_task_data (task);
+      scheme = g_uri_get_scheme (data->parsed);
+      cancellable = g_task_get_cancellable (task);
+
+      g_app_info_get_default_for_uri_scheme_async (scheme,
+                                                   cancellable,
+                                                   launch_default_app_for_uri_scheme_cb,
+                                                   g_steal_pointer (&task));
     }
   else
     {
@@ -1443,37 +1585,53 @@ g_app_info_launch_default_for_uri_async (const char          *uri,
                                          gpointer             user_data)
 {
   GTask *task;
-  char *uri_scheme;
+  GUri *parsed;
+  const char *scheme = NULL;
   LaunchDefaultForUriData *data;
 
   g_return_if_fail (uri != NULL);
+
+  parsed = g_uri_parse (uri, G_URI_FLAGS_NONE, NULL);
+  if (parsed)
+    scheme = g_uri_get_scheme (parsed);
 
   task = g_task_new (NULL, cancellable, callback, user_data);
   g_task_set_source_tag (task, g_app_info_launch_default_for_uri_async);
 
   data = g_new (LaunchDefaultForUriData, 1);
   data->uri = g_strdup (uri);
+  data->parsed = parsed ? g_uri_ref (parsed) : NULL;
   data->context = (context != NULL) ? g_object_ref (context) : NULL;
-  g_task_set_task_data (task, g_steal_pointer (&data), (GDestroyNotify) launch_default_for_uri_data_free);
+  g_task_set_task_data (task, g_steal_pointer (&data),
+                        (GDestroyNotify) launch_default_for_uri_data_free);
 
-  /* g_file_query_default_handler_async() calls
-   * g_app_info_get_default_for_uri_scheme() too, but we have to do it
-   * here anyway in case GFile can't parse @uri correctly.
-   */
-  uri_scheme = g_uri_parse_scheme (uri);
-  if (uri_scheme && uri_scheme[0] != '\0')
+  if (scheme && scheme[0] != '\0')
     {
-      g_app_info_get_default_for_uri_scheme_async (uri_scheme,
-                                                   cancellable,
-                                                   launch_default_app_for_uri_cb,
-                                                   g_steal_pointer (&task));
+      if (g_strcmp0 (scheme, "http") == 0 || g_strcmp0 (scheme, "https") == 0)
+        {
+          g_app_info_get_default_for_uri_http_async (parsed,
+                                                     cancellable,
+                                                     launch_default_app_for_uri_http_cb,
+                                                     g_steal_pointer (&task));
+        }
+      else
+        {
+          /* g_file_query_default_handler_async() calls
+           * g_app_info_get_default_for_uri_scheme() too, but we have to do it
+           * here anyway in case GFile can't parse @uri correctly.
+           */
+          g_app_info_get_default_for_uri_scheme_async (scheme,
+                                                       cancellable,
+                                                       launch_default_app_for_uri_scheme_cb,
+                                                       g_steal_pointer (&task));
+        }
     }
   else
     {
       launch_default_app_for_default_handler (g_steal_pointer (&task));
     }
 
-  g_free (uri_scheme);
+  g_clear_pointer (&parsed, g_uri_unref);
 }
 
 /**

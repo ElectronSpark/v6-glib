@@ -6060,3 +6060,9 @@ g_app_info_reset_type_associations_impl (const char *content_type)
 {
   /* nothing to do */
 }
+
+GAppInfo *
+g_app_info_get_default_for_uri_http_impl (GUri *uri)
+{
+  return NULL;
+}

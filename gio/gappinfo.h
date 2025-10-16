@@ -290,6 +290,19 @@ GIO_AVAILABLE_IN_2_50
 gboolean  g_app_info_launch_default_for_uri_finish (GAsyncResult         *result,
                                                     GError              **error);
 
+GIO_AVAILABLE_IN_2_86
+GAppInfo *g_app_info_get_default_for_uri_http (GUri *uri);
+
+GIO_AVAILABLE_IN_2_86
+void      g_app_info_get_default_for_uri_http_async (GUri                *uri,
+                                                     GCancellable        *cancellable,
+                                                     GAsyncReadyCallback  callback,
+                                                     gpointer             user_data);
+
+GIO_AVAILABLE_IN_2_86
+GAppInfo *g_app_info_get_default_for_uri_http_finish (GAsyncResult  *result,
+                                                      GError       **error);
+
 
 /**
  * GAppLaunchContext:
