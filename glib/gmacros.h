@@ -82,6 +82,9 @@
   ((version) == 99 && G_C_STD_VERSION >= 199901L) || \
   ((version) == 11 && G_C_STD_VERSION >= 201112L) || \
   ((version) == 17 && G_C_STD_VERSION >= 201710L) || \
+  /* the canonical number for C23 is 202311L, but gcc 14 used 202000L and it \
+   * implemented almost all of the C23 standard (see https://en.cppreference.com/w/c/compiler_support/23) */ \
+  ((version) == 23 && G_C_STD_VERSION >= 202000L) || \
   0)
 
 #else /* defined (__cplusplus) */
@@ -103,6 +106,7 @@
   ((version) == 14 && G_CXX_STD_VERSION >= 201402L) || \
   ((version) == 17 && G_CXX_STD_VERSION >= 201703L) || \
   ((version) == 20 && G_CXX_STD_VERSION >= 202002L) || \
+  ((version) == 23 && G_CXX_STD_VERSION >= 202302L) || \
   0)
 
 #endif /* !defined (__cplusplus) */

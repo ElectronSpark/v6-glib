@@ -98,6 +98,9 @@ glib_tests = {
   },
   'pathbuf' : {},
   'pattern' : {},
+  'print' : {
+    'can_fail' : host_system == 'windows',
+  },
   'private' : {},
   'protocol' : {},
   'queue' : {},
@@ -175,12 +178,14 @@ glib_tests = {
   'utf8-pointer' : {
     'c_args' : cc.get_id() == 'gcc' ? ['-Werror=cast-qual'] : [],
   },
+  'utf8-private' : {},
   'utf8-validate' : {},
   'utf8-misc' : {},
   'utils' : {
     'c_standards': c_standards.keys(),
   },
   'utils-isolated' : {},
+  'utils-unisolated' : {},
   'unicode' : {},
   'unicode-encoding' : {},
   'unicode-normalize': {},
@@ -251,7 +256,9 @@ if host_machine.system() == 'windows'
     'win32' : {
       'dependencies' : [wincodecs],
     },
-    'win32-private' : {},
+    'win32-private' : {
+      'dependencies' : [winsock2],
+    },
   }
 else
   glib_tests += {

@@ -74,6 +74,7 @@ gio_tests = {
   'error': {},
   'file-thumbnail' : {},
   'fileattributematcher' : {},
+  'filenamecompleter' : {},
   'filter-streams' : {},
   'giomodule' : {
     'depends' : glib_build_shared ? [libtestmodulea, libtestmoduleb] : [],
@@ -84,9 +85,8 @@ gio_tests = {
   },
   'g-file' : {},
   'g-file-info' : {
-    # FIXME: https://gitlab.gnome.org/GNOME/glib/-/issues/3070
     # FIXME: https://gitlab.gnome.org/GNOME/glib/-/issues/3148
-    'can_fail' : host_system in ['darwin', 'gnu'] or host_system == 'windows' and cc.get_id() != 'gcc',
+    'can_fail' : host_system in ['gnu'] or host_system == 'windows' and cc.get_id() != 'gcc',
   },
   'g-icon' : {},
   'gdbus-addresses' : {},
@@ -98,6 +98,7 @@ gio_tests = {
     # FIXME: https://gitlab.gnome.org/GNOME/glib/-/issues/3148
     'can_fail' : host_system in ['darwin', 'windows', 'gnu'],
   },
+  'file-enumerator' : {},
   'inet-address' : {},
   'io-stream' : {},
   'max-version' : {'install' : false},
@@ -127,7 +128,9 @@ gio_tests = {
     # FIXME: https://gitlab.gnome.org/GNOME/glib/-/issues/3148
     'can_fail' : host_system in ['darwin', 'gnu'],
   },
-  'socket-listener' : {},
+  'socket-listener' : {
+    'dependencies': libdl_dep,
+  },
   'socket-service' : {},
   'srvtarget' : {},
   'task' : {},
@@ -153,6 +156,18 @@ gio_tests = {
   },
   'win32-appinfo' : {},
 }
+
+if host_system == 'linux'
+  gio_tests += {
+    'memory-monitor-psi' : {},
+  }
+endif
+
+if glib_conf.has('HAVE_SYSINFO')
+  gio_tests += {
+    'memory-monitor-poll' : {},
+  }
+endif
 
 if glib_have_cocoa
   gio_tests += {
@@ -191,6 +206,7 @@ python_tests = {
   # FIXME: https://gitlab.gnome.org/GNOME/glib/-/issues/2764
   'codegen.py' : {
     'env': {'_G_TEST_PROGRAM_RUNNER_PATH': fs.parent(gdbus_codegen.full_path())},
+    'extra-files': ['codegen-test-extension.py'],
     'can_fail' : host_system == 'freebsd',
     'suite': ['gdbus-codegen', 'slow'],
     'timeout': 90,
@@ -354,13 +370,6 @@ if host_machine.system() != 'windows'
         'install' : false,
         'extra_programs' : ['appinfo-test'],
       },
-      'desktop-app-info' : {
-        'install' : false,
-        'depends' : gio_launch_desktop,
-        'extra_programs' : ['apps', 'appinfo-test'],
-        # FIXME: https://gitlab.gnome.org/GNOME/glib/-/issues/3148
-        'can_fail' : host_system == 'gnu',
-      },
     }
   endif
 
@@ -368,6 +377,7 @@ if host_machine.system() != 'windows'
     'basic-application' : {},
     'dbus-launch' : {},
     'appinfo-test' : {},
+    'snapinfo-test' : {},
   }
 
   if not glib_have_cocoa
@@ -586,15 +596,33 @@ if host_machine.system() != 'windows'
                    '--c-namespace', 'Fake',
                    '@INPUT@'])
 
+    fake_document_portal_sources = [
+      'fake-document-portal.c',
+      fake_document_portal_generated,
+      'fake-desktop-portal.c',
+      fake_openuri_portal_generated,
+      fake_request_portal_generated,
+    ]
+
     if not glib_have_cocoa
       gio_tests += {
+        'documentportal' : {
+          'extra_sources' : [
+            extra_sources,
+            document_portal_sources,
+            fake_document_portal_sources,
+          ],
+        },
         'dbus-appinfo' : {
-          'extra_sources' : [extra_sources,
-                             'fake-document-portal.c',
-                             fake_document_portal_generated,
-                             'fake-desktop-portal.c',
-                             fake_openuri_portal_generated,
-                             fake_request_portal_generated],
+          'extra_sources' : [extra_sources, fake_document_portal_sources],
+        },
+        'desktop-app-info' : {
+          'install' : false,
+          'depends' : gio_launch_desktop,
+          'extra_programs' : ['apps', 'appinfo-test', 'snapinfo-test'],
+          # FIXME: https://gitlab.gnome.org/GNOME/glib/-/issues/3148
+          'can_fail' : host_system == 'gnu',
+          'extra_sources' : [extra_sources, fake_document_portal_sources],
         },
       }
     endif
@@ -724,6 +752,7 @@ appinfo_test_desktop_files = [
   'appinfo-test-path',
   'appinfo-test',
   'appinfo-test2',
+  'snap-app_appinfo-test',
 ]
 
 foreach appinfo_test_desktop_file : appinfo_test_desktop_files
@@ -763,6 +792,7 @@ if installed_tests_enabled
     'file.c',
     'org.gtk.test.dbusappinfo.desktop',
     'org.gtk.test.dbusappinfo.flatpak.desktop',
+    'org.gtk.test.dbusappinfo.snap.desktop',
     'test1.overlay',
     install_dir : installed_tests_execdir,
     install_tag : 'tests',
@@ -1209,9 +1239,13 @@ foreach test_name, extra_args : python_tests
     suite: suite,
   )
 
+  foreach file : extra_args.get('extra-files', [])
+    fs.copyfile(file)
+  endforeach
+
   if installed_tests_enabled
     install_data(
-      files(test_name),
+      files([test_name] + extra_args.get('extra-files', [])),
       install_dir: installed_tests_execdir,
       install_tag: 'tests',
       install_mode: 'rwxr-xr-x',

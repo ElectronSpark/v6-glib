@@ -571,6 +571,16 @@ test_strndup (void)
   g_assert_nonnull (str);
   g_assert_cmpstr (str, ==, "aa");
   g_free (str);
+
+  if (g_test_undefined ())
+    {
+      /* Testing degenerated cases */
+      g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                             "*assertion* < G_MAXSIZE*");
+      g_assert_null (
+          g_strndup ("aaaa", G_MAXSIZE));
+      g_test_assert_expected_messages ();
+    }
 }
 
 /* Testing g_strdup_printf() function with various positive and negative cases */
@@ -616,6 +626,16 @@ test_strnfill (void)
   g_assert_nonnull (str);
   g_assert_cmpstr (str, ==, "aaaaa");
   g_free (str);
+
+  if (g_test_undefined ())
+    {
+      /* Testing degenerated cases */
+      g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                             "*assertion* < G_MAXSIZE*");
+      g_assert_null (
+          g_strnfill (G_MAXSIZE, 'a'));
+      g_test_assert_expected_messages ();
+    }
 }
 
 /* Testing g_strconcat() function with various positive and negative cases */
@@ -638,6 +658,46 @@ test_strconcat (void)
   g_free (str);
 
   g_assert_null (g_strconcat (NULL, "bla", NULL));
+}
+
+/* Testing g_strjoinv() function with strings which cannot be joined in heap */
+static void
+test_strjoinv_overflow (void)
+{
+#if GLIB_SIZEOF_SIZE_T > (UINT_WIDTH / 8)
+  g_test_skip ("Overflow joining strings requires G_MAXSIZE <= G_MAXUINT.");
+#else
+  if (!g_test_undefined ())
+    return;
+
+  if (g_test_subprocess ())
+    {
+      /* compromise between memory consumption and performance */
+      const size_t count = 256;
+      gchar **array;
+      gchar *result;
+      gchar *string;
+
+      string = g_strnfill (G_MAXSIZE / ((count - 1) * 2), 'A');
+      array = g_malloc_n (count + 1, sizeof (*array));
+
+      for (size_t i = 0; i < count; i++)
+        array[i] = string;
+      array[count] = NULL;
+
+      result = g_strjoinv (string, array);
+
+      g_free (array);
+      g_free (result);
+      g_free (string);
+    }
+  else
+    {
+      g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
+      g_test_trap_assert_failed ();
+      g_test_trap_assert_stderr ("*overflow joining strings*");
+    }
+#endif
 }
 
 /* Testing g_strjoinv() function with various positive and negative cases */
@@ -2777,6 +2837,7 @@ main (int   argc,
   g_test_add_func ("/strfuncs/strip-context", test_strip_context);
   g_test_add_func ("/strfuncs/strjoin", test_strjoin);
   g_test_add_func ("/strfuncs/strjoinv", test_strjoinv);
+  g_test_add_func ("/strfuncs/strjoinv/overflow", test_strjoinv_overflow);
   g_test_add_func ("/strfuncs/strlcat", test_strlcat);
   g_test_add_func ("/strfuncs/strlcpy", test_strlcpy);
   g_test_add_func ("/strfuncs/strncasecmp", test_strncasecmp);

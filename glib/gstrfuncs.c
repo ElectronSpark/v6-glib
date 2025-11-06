@@ -416,6 +416,8 @@ g_strndup (const gchar *str,
 
   if (str)
     {
+      g_return_val_if_fail (n < G_MAXSIZE, NULL);
+
       new_str = g_new (gchar, n + 1);
       strncpy (new_str, str, n);
       new_str[n] = '\0';
@@ -440,6 +442,8 @@ g_strnfill (gsize length,
             gchar fill_char)
 {
   gchar *str;
+
+  g_return_val_if_fail (length < G_MAXSIZE, NULL);
 
   str = g_new (gchar, length + 1);
   memset (str, (guchar)fill_char, length);
@@ -577,7 +581,8 @@ g_strconcat (const gchar *string1, ...)
   s = va_arg (args, gchar*);
   while (s)
     {
-      l += strlen (s);
+      if (!g_size_checked_add (&l, l, strlen (s)))
+        g_error ("%s: overflow concatenating strings", G_STRLOC);
       s = va_arg (args, gchar*);
     }
   va_end (args);
@@ -1018,7 +1023,7 @@ g_parse_long_long (const gchar  *nptr,
                    guint         base,
                    gboolean     *negative)
 {
-  /* this code is based on on the strtol(3) code from GNU libc released under
+  /* this code is based on the strtol(3) code from GNU libc released under
    * the GNU Lesser General Public License.
    *
    * Copyright (C) 1991,92,94,95,96,97,98,99,2000,01,02
@@ -1250,7 +1255,7 @@ g_ascii_strtoll (const gchar *nptr,
       return G_MAXINT64;
     }
   else if (negative)
-    return - (gint64) result;
+    return (result == (guint64) G_MININT64) ? G_MININT64 : -(gint64) result;
   else
     return (gint64) result;
 #endif
@@ -2210,6 +2215,7 @@ gchar *
 g_strescape (const gchar *source,
              const gchar *exceptions)
 {
+  size_t len;
   const guchar *p;
   gchar *dest;
   gchar *q;
@@ -2219,7 +2225,13 @@ g_strescape (const gchar *source,
 
   p = (guchar *) source;
   /* Each source byte needs maximally four destination chars (\777) */
-  q = dest = g_malloc (strlen (source) * 4 + 1);
+  if (!g_size_checked_mul (&len, strlen (source), 4) ||
+      !g_size_checked_add (&len, len, 1))
+    {
+      g_error ("%s: overflow allocating %" G_GSIZE_FORMAT "*4+1 bytes",
+               G_STRLOC, strlen (source));
+    }
+  q = dest = g_malloc (len);
 
   memset (excmap, 0, 256);
   if (exceptions)
@@ -2634,13 +2646,18 @@ g_strjoinv (const gchar  *separator,
       gsize i;
       gsize len;
       gsize separator_len;
+      gsize separators_len;
 
       separator_len = strlen (separator);
       /* First part, getting length */
       len = 1 + strlen (str_array[0]);
       for (i = 1; str_array[i] != NULL; i++)
-        len += strlen (str_array[i]);
-      len += separator_len * (i - 1);
+        if (!g_size_checked_add (&len, len, strlen (str_array[i])))
+          g_error ("%s: overflow joining strings", G_STRLOC);
+
+      if (!g_size_checked_mul (&separators_len, separator_len, (i - 1)) ||
+          !g_size_checked_add (&len, len, separators_len))
+        g_error ("%s: overflow joining strings", G_STRLOC);
 
       /* Second part, building string */
       string = g_new (gchar, len);
@@ -2695,7 +2712,9 @@ g_strjoin (const gchar *separator,
       s = va_arg (args, gchar*);
       while (s)
         {
-          len += separator_len + strlen (s);
+          if (!g_size_checked_add (&len, len, separator_len) ||
+              !g_size_checked_add (&len, len, strlen (s)))
+            g_error ("%s: overflow joining strings", G_STRLOC);
           s = va_arg (args, gchar*);
         }
       va_end (args);

@@ -805,7 +805,7 @@ test_l10n (void)
   new_locale = newlocale (LC_MESSAGES_MASK, "de_DE.UTF-8", (locale_t) 0);
   if (new_locale == (locale_t) 0)
     {
-      g_test_skip ("Cannot run test becaues de_DE.UTF-8 locale is not available");
+      g_test_skip ("Cannot run test because de_DE.UTF-8 locale is not available");
       g_object_unref (settings);
       return;
     }
@@ -878,7 +878,7 @@ test_l10n_context (void)
   new_locale = newlocale (LC_MESSAGES_MASK, "de_DE.UTF-8", (locale_t) 0);
   if (new_locale == (locale_t) 0)
     {
-      g_test_skip ("Cannot run test becaues de_DE.UTF-8 locale is not available");
+      g_test_skip ("Cannot run test because de_DE.UTF-8 locale is not available");
       g_object_unref (settings);
       return;
     }
@@ -944,7 +944,7 @@ test_l10n_time (void)
   new_locale = newlocale (LC_TIME_MASK, "de_DE.UTF-8", new_locale);
   if (new_locale == (locale_t) 0)
     {
-      g_test_skip ("Cannot run test becaues de_DE.UTF-8 locale is not available");
+      g_test_skip ("Cannot run test because de_DE.UTF-8 locale is not available");
       g_object_unref (settings);
       return;
     }
@@ -1827,6 +1827,7 @@ test_bind_with_mapping_closures_parameters (void)
   GSettings *settings;
   GClosure *get;
   GClosure *set;
+  gboolean val;
   BindWithMappingData data = { FALSE, FALSE, FALSE, FALSE };
 
   settings = g_settings_new ("org.gtk.test.binding");
@@ -1843,6 +1844,8 @@ test_bind_with_mapping_closures_parameters (void)
 
   g_assert_true (data.get_called);
   g_assert_false (data.set_called);
+  g_object_get (obj, "bool", &val, NULL);
+  g_assert_true (val);
 
   data.get_called = FALSE;
   g_object_set (obj, "bool", FALSE, NULL);

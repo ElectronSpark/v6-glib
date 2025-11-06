@@ -367,6 +367,12 @@ if host_system != 'windows'
     'ggtknotificationbackend.c',
   )
 
+  document_portal_sources = [files(
+      'gdocumentportal.c',
+    ),
+    xdp_dbus_generated,
+  ]
+
   portal_sources = [files(
       'gdocumentportal.c',
       'gopenuriportal.c',
@@ -379,7 +385,7 @@ if host_system != 'windows'
       'gportalnotificationbackend.c',
       'gsandbox.c',
     ),
-    xdp_dbus_generated
+    document_portal_sources,
   ]
 
   gio_unix_include_headers = files(
@@ -389,6 +395,16 @@ if host_system != 'windows'
     'gunixinputstream.h',
     'gunixoutputstream.h',
   )
+
+  if glib_conf.has('HAVE_SYSINFO')
+    unix_sources += files(
+      'gmemorymonitorpoll.c',
+    )
+  endif
+  
+  if host_system != 'sunos'
+    unix_sources += files('gmemorymonitorpsi.c')
+  endif
 
   if glib_have_cocoa
     settings_sources += files('gnextstepsettingsbackend.m')
@@ -528,6 +544,7 @@ gio_base_sources = files(
   'gmarshal-internal.c',
   'gmount.c',
   'gmemorymonitor.c',
+  'gmemorymonitorbase.c',
   'gmemorymonitordbus.c',
   'gmemoryinputstream.c',
   'gmemoryoutputstream.c',

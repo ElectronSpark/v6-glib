@@ -461,6 +461,7 @@ const char * const exec_key_match_blocklist[] = {
   "bash",
   "env",
   "flatpak",
+  "snap",
   "gjs",
   "pkexec",
   "python",
@@ -1795,7 +1796,7 @@ g_desktop_app_info_class_init (GDesktopAppInfoClass *klass)
   /**
    * GDesktopAppInfo:filename:
    *
-   * The origin filename of this [class@Gio.DesktopAppInfo]
+   * The origin filename of this [class@GioUnix.DesktopAppInfo]
    */
   g_object_class_install_property (gobject_class,
                                    PROP_FILENAME,
@@ -1884,6 +1885,14 @@ g_desktop_app_info_get_desktop_id_for_filename (GDesktopAppInfo *self)
 }
 
 static gboolean
+is_invalid_key_error (const GError *error)
+{
+  return (error != NULL &&
+          !g_error_matches (error, G_KEY_FILE_ERROR, G_KEY_FILE_ERROR_GROUP_NOT_FOUND) &&
+          !g_error_matches (error, G_KEY_FILE_ERROR, G_KEY_FILE_ERROR_KEY_NOT_FOUND));
+}
+
+static gboolean
 g_desktop_app_info_load_from_keyfile (GDesktopAppInfo *info,
                                       GKeyFile        *key_file)
 {
@@ -1893,6 +1902,7 @@ g_desktop_app_info_load_from_keyfile (GDesktopAppInfo *info,
   char *exec;
   char *path;
   gboolean bus_activatable;
+  GError *local_error = NULL;
 
   start_group = g_key_file_get_start_group (key_file);
   if (start_group == NULL || strcmp (start_group, G_KEY_FILE_DESKTOP_GROUP) != 0)
@@ -1915,12 +1925,27 @@ g_desktop_app_info_load_from_keyfile (GDesktopAppInfo *info,
 
   path = g_key_file_get_string (key_file,
                                 G_KEY_FILE_DESKTOP_GROUP,
-                                G_KEY_FILE_DESKTOP_KEY_PATH, NULL);
+                                G_KEY_FILE_DESKTOP_KEY_PATH,
+                                &local_error);
+  if (is_invalid_key_error (local_error))
+    {
+      g_error_free (local_error);
+      return FALSE;
+    }
+  g_clear_error (&local_error);
 
   try_exec = g_key_file_get_string (key_file,
                                     G_KEY_FILE_DESKTOP_GROUP,
                                     G_KEY_FILE_DESKTOP_KEY_TRY_EXEC,
-                                    NULL);
+                                    &local_error);
+  if (is_invalid_key_error (local_error))
+    {
+      g_free (path);
+      g_error_free (local_error);
+      return FALSE;
+    }
+  g_clear_error (&local_error);
+
   if (try_exec && try_exec[0] != '\0')
     {
       char *t;
@@ -1938,7 +1963,16 @@ g_desktop_app_info_load_from_keyfile (GDesktopAppInfo *info,
   exec = g_key_file_get_string (key_file,
                                 G_KEY_FILE_DESKTOP_GROUP,
                                 G_KEY_FILE_DESKTOP_KEY_EXEC,
-                                NULL);
+                                &local_error);
+  if (is_invalid_key_error (local_error))
+    {
+      g_free (path);
+      g_free (try_exec);
+      g_error_free (local_error);
+      return FALSE;
+    }
+  g_clear_error (&local_error);
+
   if (exec && exec[0] != '\0')
     {
       gint argc;
@@ -2084,9 +2118,9 @@ g_desktop_app_info_load_file (GDesktopAppInfo *self)
  * g_desktop_app_info_new_from_keyfile:
  * @key_file: an opened [type@GLib.KeyFile]
  *
- * Creates a new [class@Gio.DesktopAppInfo].
+ * Creates a new [class@GioUnix.DesktopAppInfo].
  *
- * Returns: (nullable): a new [class@Gio.DesktopAppInfo] or `NULL` on error.
+ * Returns: (nullable): a new [class@GioUnix.DesktopAppInfo] or `NULL` on error.
  *
  * Since: 2.18
  **/
@@ -2113,9 +2147,9 @@ g_desktop_app_info_new_from_keyfile (GKeyFile *key_file)
  * @filename: (type filename): the path of a desktop file, in the GLib
  *      filename encoding
  *
- * Creates a new [class@Gio.DesktopAppInfo].
+ * Creates a new [class@GioUnix.DesktopAppInfo].
  *
- * Returns: (nullable): a new [class@Gio.DesktopAppInfo] or `NULL` on error.
+ * Returns: (nullable): a new [class@GioUnix.DesktopAppInfo] or `NULL` on error.
  **/
 GDesktopAppInfo *
 g_desktop_app_info_new_from_filename (const char *filename)
@@ -2135,7 +2169,7 @@ g_desktop_app_info_new_from_filename (const char *filename)
  * g_desktop_app_info_new:
  * @desktop_id: the desktop file ID
  *
- * Creates a new [class@Gio.DesktopAppInfo] based on a desktop file ID.
+ * Creates a new [class@GioUnix.DesktopAppInfo] based on a desktop file ID.
  *
  * A desktop file ID is the basename of the desktop file, including the
  * `.desktop` extension. GIO is looking for a desktop file with this name
@@ -2147,7 +2181,7 @@ g_desktop_app_info_new_from_filename (const char *filename)
  * (i.e. a desktop ID of `kde-foo.desktop` will match
  * `/usr/share/applications/kde/foo.desktop`).
  *
- * Returns: (nullable): a new [class@Gio.DesktopAppInfo], or `NULL` if no
+ * Returns: (nullable): a new [class@GioUnix.DesktopAppInfo], or `NULL` if no
  *    desktop file with that ID exists.
  */
 GDesktopAppInfo *
@@ -2266,7 +2300,7 @@ g_desktop_app_info_get_display_name (GAppInfo *appinfo)
 
 /**
  * g_desktop_app_info_get_is_hidden:
- * @info: a [class@Gio.DesktopAppInfo].
+ * @info: a [class@GioUnix.DesktopAppInfo].
  *
  * A desktop file is hidden if the
  * [`Hidden` key](https://specifications.freedesktop.org/desktop-entry-spec/latest/ar01s06.html#key-hidden)
@@ -2282,11 +2316,13 @@ g_desktop_app_info_get_is_hidden (GDesktopAppInfo *info)
 
 /**
  * g_desktop_app_info_get_filename:
- * @info: a [class@Gio.DesktopAppInfo]
+ * @info: a [class@GioUnix.DesktopAppInfo]
  *
- * When @info was created from a known filename, return it.  In some
- * situations such as a [class@Gio.DesktopAppInfo] returned from
- * [ctor@Gio.DesktopAppInfo.new_from_keyfile], this function will return `NULL`.
+ * When @info was created from a known filename, return it.
+ *
+ * In some situations such as a [class@GioUnix.DesktopAppInfo] returned
+ * from [ctor@GioUnix.DesktopAppInfo.new_from_keyfile], this function
+ * will return `NULL`.
  *
  * Returns: (nullable) (type filename): The full path to the file for @info,
  *   or `NULL` if not known.
@@ -2332,7 +2368,7 @@ g_desktop_app_info_get_icon (GAppInfo *appinfo)
 
 /**
  * g_desktop_app_info_get_categories:
- * @info: a [class@Gio.DesktopAppInfo]
+ * @info: a [class@GioUnix.DesktopAppInfo]
  *
  * Gets the categories from the desktop file.
  *
@@ -2349,11 +2385,11 @@ g_desktop_app_info_get_categories (GDesktopAppInfo *info)
 
 /**
  * g_desktop_app_info_get_keywords:
- * @info: a [class@Gio.DesktopAppInfo]
+ * @info: a [class@GioUnix.DesktopAppInfo]
  *
  * Gets the keywords from the desktop file.
  *
- * Returns: (transfer none): The value of the
+ * Returns: (nullable) (array zero-terminated=1) (transfer none): The value of the
  *   [`Keywords` key](https://specifications.freedesktop.org/desktop-entry-spec/latest/ar01s06.html#key-keywords)
  *
  * Since: 2.32
@@ -2366,7 +2402,7 @@ g_desktop_app_info_get_keywords (GDesktopAppInfo *info)
 
 /**
  * g_desktop_app_info_get_generic_name:
- * @info: a [class@Gio.DesktopAppInfo]
+ * @info: a [class@GioUnix.DesktopAppInfo]
  *
  * Gets the generic name from the desktop file.
  *
@@ -2381,7 +2417,7 @@ g_desktop_app_info_get_generic_name (GDesktopAppInfo *info)
 
 /**
  * g_desktop_app_info_get_nodisplay:
- * @info: a [class@Gio.DesktopAppInfo]
+ * @info: a [class@GioUnix.DesktopAppInfo]
  *
  * Gets the value of the
  * [`NoDisplay` key](https://specifications.freedesktop.org/desktop-entry-spec/latest/ar01s06.html#key-nodisplay)
@@ -2400,7 +2436,7 @@ g_desktop_app_info_get_nodisplay (GDesktopAppInfo *info)
 
 /**
  * g_desktop_app_info_get_show_in:
- * @info: a [class@Gio.DesktopAppInfo]
+ * @info: a [class@GioUnix.DesktopAppInfo]
  * @desktop_env: (nullable): a string specifying a desktop name
  *
  * Checks if the application info should be shown in menus that list available
@@ -2915,6 +2951,7 @@ g_desktop_app_info_launch_uris_with_spawn (GDesktopAppInfo            *info,
   gboolean completed = FALSE;
   GList *old_uris;
   GList *dup_uris;
+  GList *ruris = NULL;
 
   char **argv, **envp;
   int argc;
@@ -2927,6 +2964,30 @@ g_desktop_app_info_launch_uris_with_spawn (GDesktopAppInfo            *info,
     envp = g_app_launch_context_get_environment (launch_context);
   else
     envp = g_get_environ ();
+
+#ifdef G_OS_UNIX
+  if (uris && info->keyfile)
+    {
+      char *snap_instance;
+      char *app_id = NULL;
+
+      snap_instance = g_desktop_app_info_get_string (info, "X-SnapInstanceName");
+
+      if (snap_instance && *snap_instance)
+        app_id = g_strconcat ("snap.", snap_instance, NULL);
+
+      g_free (snap_instance);
+
+      if (app_id)
+        {
+          ruris = g_document_portal_add_documents (uris, app_id, NULL);
+          if (ruris != NULL)
+            uris = ruris;
+        }
+
+      g_clear_pointer (&app_id, g_free);
+    }
+#endif
 
   /* The GList* passed to expand_application_parameters() will be modified
    * internally by expand_macro(), so we need to pass a copy of it instead,
@@ -3117,6 +3178,7 @@ g_desktop_app_info_launch_uris_with_spawn (GDesktopAppInfo            *info,
  out:
   g_strfreev (argv);
   g_strfreev (envp);
+  g_list_free_full (ruris, g_free);
 
   return completed;
 }
@@ -3302,12 +3364,27 @@ g_desktop_app_info_launch_uris_with_dbus (GDesktopAppInfo    *info,
 
 #ifdef G_OS_UNIX
   app_id = g_desktop_app_info_get_string (info, "X-Flatpak");
+
+  if (!app_id)
+    {
+      char *snap_instance;
+
+      snap_instance = g_desktop_app_info_get_string (info, "X-SnapInstanceName");
+
+      if (snap_instance && *snap_instance)
+        app_id = g_strconcat ("snap.", snap_instance, NULL);
+
+      g_free (snap_instance);
+    }
+
   if (app_id && *app_id)
     {
       ruris = g_document_portal_add_documents (uris, app_id, NULL);
       if (ruris == NULL)
         ruris = uris;
     }
+
+  g_clear_pointer (&app_id, g_free);
 #endif
 
   launch_uris_with_dbus (info, session_bus, ruris, launch_context,
@@ -3315,8 +3392,6 @@ g_desktop_app_info_launch_uris_with_dbus (GDesktopAppInfo    *info,
 
   if (ruris != uris)
     g_list_free_full (ruris, g_free);
-
-  g_free (app_id);
 
   return TRUE;
 }
@@ -3569,7 +3644,7 @@ g_desktop_app_info_launch (GAppInfo           *appinfo,
 
 /**
  * g_desktop_app_info_launch_uris_as_manager_with_fds:
- * @appinfo: a [class@Gio.DesktopAppInfo]
+ * @appinfo: a [class@GioUnix.DesktopAppInfo]
  * @uris: (element-type utf8): List of URIs
  * @launch_context: (nullable): a [class@Gio.AppLaunchContext]
  * @spawn_flags: [flags@GLib.SpawnFlags], used for each process
@@ -3583,9 +3658,9 @@ g_desktop_app_info_launch (GAppInfo           *appinfo,
  * @stderr_fd: file descriptor to use for child’s stderr, or `-1`
  * @error: return location for a #GError, or `NULL`
  *
- * Equivalent to [method@Gio.DesktopAppInfo.launch_uris_as_manager] but allows
- * you to pass in file descriptors for the stdin, stdout and stderr streams
- * of the launched process.
+ * Equivalent to [method@GioUnix.DesktopAppInfo.launch_uris_as_manager] but
+ * allows you to pass in file descriptors for the stdin, stdout and stderr
+ * streams of the launched process.
  *
  * If application launching occurs via some non-spawn mechanism (e.g. D-Bus
  * activation) then @stdin_fd, @stdout_fd and @stderr_fd are ignored.
@@ -3624,7 +3699,7 @@ g_desktop_app_info_launch_uris_as_manager_with_fds (GDesktopAppInfo            *
 
 /**
  * g_desktop_app_info_launch_uris_as_manager:
- * @appinfo: a [class@Gio.DesktopAppInfo]
+ * @appinfo: a [class@GioUnix.DesktopAppInfo]
  * @uris: (element-type utf8): List of URIs
  * @launch_context: (nullable): a [class@Gio.AppLaunchContext]
  * @spawn_flags: [flags@GLib.SpawnFlags], used for each process
@@ -3686,7 +3761,7 @@ g_desktop_app_info_launch_uris_as_manager (GDesktopAppInfo            *appinfo,
  * Sets the name of the desktop that the application is running in.
  *
  * This is used by [method@Gio.AppInfo.should_show] and
- * [method@Gio.DesktopAppInfo.get_show_in] to evaluate the
+ * [method@GioUnix.DesktopAppInfo.get_show_in] to evaluate the
  * [`OnlyShowIn`](https://specifications.freedesktop.org/desktop-entry-spec/latest/ar01s06.html#key-onlyshowin)
  * and [`NotShowIn`](https://specifications.freedesktop.org/desktop-entry-spec/latest/ar01s06.html#key-notshowin)
  * keys.
@@ -3775,7 +3850,7 @@ update_mimeapps_list (const char  *desktop_id,
                       UpdateMimeFlags flags,
                       GError     **error)
 {
-  char *dirname, *filename, *string;
+  char *dirname, *old_filename, *filename, *string;
   GKeyFile *key_file;
   gboolean load_succeeded, res;
   char **old_list, **list;
@@ -3793,6 +3868,16 @@ update_mimeapps_list (const char  *desktop_id,
     return FALSE;
 
   filename = g_build_filename (dirname, "mimeapps.list", NULL);
+
+  while (g_file_test (filename, G_FILE_TEST_IS_SYMLINK))
+    {
+      old_filename = filename;
+      filename = g_file_read_link (old_filename, error);
+      g_free (old_filename);
+      if (filename == NULL)
+        return FALSE;
+    }
+
   g_free (dirname);
 
   key_file = g_key_file_new ();
@@ -4689,7 +4774,7 @@ g_app_info_get_default_for_uri_scheme_impl (const char *uri_scheme)
  * the `Implements` line of the desktop file of the application.
  *
  * Returns: (element-type GDesktopAppInfo) (transfer full): a list of
- *   [class@Gio.DesktopAppInfo] objects.
+ *   [class@GioUnix.DesktopAppInfo] objects.
  *
  * Since: 2.42
  **/
@@ -4742,11 +4827,12 @@ g_desktop_app_info_get_implementations (const gchar *interface)
  * any time.
  *
  * None of the search results are subjected to the normal validation
- * checks performed by [ctor@Gio.DesktopAppInfo.new] (for example, checking that
- * the executable referenced by a result exists), and so it is possible for
- * [ctor@Gio.DesktopAppInfo.new] to return `NULL` when passed an app ID returned
- * by this function. It is expected that calling code will do this when
- * subsequently creating a [class@Gio.DesktopAppInfo] for each result.
+ * checks performed by [ctor@GioUnix.DesktopAppInfo.new] (for example,
+ * checking that the executable referenced by a result exists), and so it is
+ * possible for [ctor@GioUnix.DesktopAppInfo.new] to return `NULL` when passed
+ * an app ID returned by this function. It is expected that calling code will
+ * do this when subsequently creating a [class@GioUnix.DesktopAppInfo] for
+ * each result.
  *
  * Returns: (array zero-terminated=1) (element-type GStrv) (transfer full): a
  *   list of strvs.  Free each item with [func@GLib.strfreev] and free the outer
@@ -4872,7 +4958,7 @@ g_app_info_get_all_impl (void)
  * #GDesktopAppInfoLookup is an opaque data structure and can only be accessed
  * using the following functions.
  *
- * Deprecated: 2.28: The [iface@Gio.DesktopAppInfoLookup] interface is
+ * Deprecated: 2.28: The [iface@GioUnix.DesktopAppInfoLookup] interface is
  *   deprecated and unused by GIO.
  **/
 
@@ -4890,14 +4976,14 @@ g_desktop_app_info_lookup_default_init (GDesktopAppInfoLookupInterface *iface)
 
 /**
  * g_desktop_app_info_lookup_get_default_for_uri_scheme:
- * @lookup: a [iface@Gio.DesktopAppInfoLookup]
+ * @lookup: a [iface@GioUnix.DesktopAppInfoLookup]
  * @uri_scheme: a string containing a URI scheme.
  *
  * Gets the default application for launching applications
- * using this URI scheme for a particular [iface@Gio.DesktopAppInfoLookup]
+ * using this URI scheme for a particular [iface@GioUnix.DesktopAppInfoLookup]
  * implementation.
  *
- * The [iface@Gio.DesktopAppInfoLookup] interface and this function is used
+ * The [iface@GioUnix.DesktopAppInfoLookup] interface and this function is used
  * to implement [func@Gio.AppInfo.get_default_for_uri_scheme] backends
  * in a GIO module. There is no reason for applications to use it
  * directly. Applications should use
@@ -4906,7 +4992,7 @@ g_desktop_app_info_lookup_default_init (GDesktopAppInfoLookupInterface *iface)
  * Returns: (transfer full) (nullable): [iface@Gio.AppInfo] for given
  *   @uri_scheme or `NULL` on error.
  *
- * Deprecated: 2.28: The [iface@Gio.DesktopAppInfoLookup] interface is
+ * Deprecated: 2.28: The [iface@GioUnix.DesktopAppInfoLookup] interface is
  *   deprecated and unused by GIO.
  */
 GAppInfo *
@@ -4928,7 +5014,7 @@ G_GNUC_END_IGNORE_DEPRECATIONS
 
 /**
  * g_desktop_app_info_get_startup_wm_class:
- * @info: a [class@Gio.DesktopAppInfo] that supports startup notify
+ * @info: a [class@GioUnix.DesktopAppInfo] that supports startup notify
  *
  * Retrieves the `StartupWMClass` field from @info. This represents the
  * `WM_CLASS` property of the main window of the application, if launched
@@ -4949,7 +5035,7 @@ g_desktop_app_info_get_startup_wm_class (GDesktopAppInfo *info)
 
 /**
  * g_desktop_app_info_get_string:
- * @info: a [class@Gio.DesktopAppInfo]
+ * @info: a [class@GioUnix.DesktopAppInfo]
  * @key: the key to look up
  *
  * Looks up a string value in the keyfile backing @info.
@@ -4973,7 +5059,7 @@ g_desktop_app_info_get_string (GDesktopAppInfo *info,
 
 /**
  * g_desktop_app_info_get_locale_string:
- * @info: a [class@Gio.DesktopAppInfo]
+ * @info: a [class@GioUnix.DesktopAppInfo]
  * @key: the key to look up
  *
  * Looks up a localized string value in the keyfile backing @info
@@ -5000,7 +5086,7 @@ g_desktop_app_info_get_locale_string (GDesktopAppInfo *info,
 
 /**
  * g_desktop_app_info_get_boolean:
- * @info: a [class@Gio.DesktopAppInfo]
+ * @info: a [class@GioUnix.DesktopAppInfo]
  * @key: the key to look up
  *
  * Looks up a boolean value in the keyfile backing @info.
@@ -5023,7 +5109,7 @@ g_desktop_app_info_get_boolean (GDesktopAppInfo *info,
 
 /**
  * g_desktop_app_info_get_string_list:
- * @info: a [class@Gio.DesktopAppInfo]
+ * @info: a [class@GioUnix.DesktopAppInfo]
  * @key: the key to look up
  * @length: (out) (optional): return location for the number of returned
  *   strings, or `NULL`
@@ -5032,7 +5118,7 @@ g_desktop_app_info_get_boolean (GDesktopAppInfo *info,
  *
  * The @key is looked up in the `Desktop Entry` group.
  *
- * Returns: (array zero-terminated=1 length=length) (element-type utf8) (transfer full):
+ * Returns: (nullable) (array zero-terminated=1 length=length) (element-type utf8) (transfer full):
  *   a `NULL`-terminated string array or `NULL` if the specified
  *   key cannot be found. The array should be freed with [func@GLib.strfreev].
  *
@@ -5051,7 +5137,7 @@ g_desktop_app_info_get_string_list (GDesktopAppInfo *info,
 
 /**
  * g_desktop_app_info_has_key:
- * @info: a [class@Gio.DesktopAppInfo]
+ * @info: a [class@GioUnix.DesktopAppInfo]
  * @key: the key to look up
  *
  * Returns whether @key exists in the `Desktop Entry` group
@@ -5075,7 +5161,7 @@ g_desktop_app_info_has_key (GDesktopAppInfo *info,
 
 /**
  * g_desktop_app_info_list_actions:
- * @info: a [class@Gio.DesktopAppInfo]
+ * @info: a [class@GioUnix.DesktopAppInfo]
  *
  * Returns the list of
  * [‘additional application actions’](https://specifications.freedesktop.org/desktop-entry-spec/latest/ar01s11.html)
@@ -5112,9 +5198,9 @@ app_info_has_action (GDesktopAppInfo *info,
 
 /**
  * g_desktop_app_info_get_action_name:
- * @info: a [class@Gio.DesktopAppInfo]
+ * @info: a [class@GioUnix.DesktopAppInfo]
  * @action_name: the name of the action as from
- *   [method@Gio.DesktopAppInfo.list_actions]
+ *   [method@GioUnix.DesktopAppInfo.list_actions]
  *
  * Gets the user-visible display name of the
  * [‘additional application actions’](https://specifications.freedesktop.org/desktop-entry-spec/latest/ar01s11.html)
@@ -5155,15 +5241,15 @@ g_desktop_app_info_get_action_name (GDesktopAppInfo *info,
 
 /**
  * g_desktop_app_info_launch_action:
- * @info: a [class@Gio.DesktopAppInfo]
+ * @info: a [class@GioUnix.DesktopAppInfo]
  * @action_name: the name of the action as from
- *   [method@Gio.DesktopAppInfo.list_actions]
+ *   [method@GioUnix.DesktopAppInfo.list_actions]
  * @launch_context: (nullable): a [class@Gio.AppLaunchContext]
  *
  * Activates the named application action.
  *
  * You may only call this function on action names that were
- * returned from [method@Gio.DesktopAppInfo.list_actions].
+ * returned from [method@GioUnix.DesktopAppInfo.list_actions].
  *
  * Note that if the main entry of the desktop file indicates that the
  * application supports startup notification, and @launch_context is
