@@ -127,6 +127,7 @@ if host_system == 'windows'
       '--library=gobject-2.0',
     ],
   )
+  glib_platform_gir = glib_win32_gir
 else
   glib_unix_gir = gnome.generate_gir(libglib,
     sources: [
@@ -157,7 +158,13 @@ else
       '--c-include=glib-unix.h',
     ],
   )
+  glib_platform_gir = glib_unix_gir
 endif
+
+libglib_dep = declare_dependency(
+  sources: [glib_gir[0], glib_platform_gir[0]],
+  dependencies: libglib_dep,
+)
 
 # GObject
 gobject_gir = gnome.generate_gir(libgobject,
@@ -182,6 +189,11 @@ gobject_gir = gnome.generate_gir(libgobject,
       '-DGOBJECT_COMPILATION',
       '--symbol-prefix=gobject',
   ],
+)
+
+libgobject_dep = declare_dependency(
+  sources: [gobject_gir[0]],
+  dependencies: libgobject_dep,
 )
 
 # GModule
@@ -212,6 +224,11 @@ gmodule_gir = gnome.generate_gir(libgmodule,
       '-DGETTEXT_PACKAGE="dummy"',
       '--symbol-prefix=gmodule',
   ],
+)
+
+libgmodule_dep = declare_dependency(
+  sources: [gmodule_gir[0]],
+  dependencies: libgmodule_dep,
 )
 
 # Gio
@@ -316,6 +333,11 @@ else
   gio_platform_gir = gio_unix_gir
 endif
 
+libgio_dep = declare_dependency(
+  sources: [gio_gir[0], gio_platform_gir[0]],
+  dependencies: libgio_dep,
+)
+
 # GIRepository
 libgirepository_gir_sources = [
   gi_visibility_h,
@@ -356,3 +378,23 @@ girepository_gir = gnome.generate_gir(libgirepository,
   env: gi_libgirepository_gen_env_variables,
 )
 
+libgirepository_dep = declare_dependency(
+  sources: [girepository_gir[0]],
+  dependencies: libgirepository_dep,
+)
+
+if gobject_introspection.type_name() == 'internal'
+  # FIXME: Move those gir files into glib
+  gi_subp = subproject('gobject-introspection')
+  gir_files = gi_subp.get_variable('gir_files')
+  foreach gir: gir_files
+    custom_target(
+      input: gir['file'],
+      output: '@BASENAME@.typelib',
+      command: [gicompilerepository, '-o', '@OUTPUT@', '@INPUT@', '--includedir', meson.current_build_dir()],
+      depends: [gobject_gir[0]],
+      install: true,
+      install_dir: get_option('libdir') / 'girepository-1.0',
+    )
+  endforeach
+endif

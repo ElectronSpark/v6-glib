@@ -946,7 +946,7 @@ pkg.generate(libgio,
   name : 'GIO',
   description : 'glib I/O library',
 )
-meson.override_dependency('gio-2.0', libgio_dep)
+meson.override_dependency('gio-2.0-no-gir', libgio_dep)
 
 if host_system == 'windows'
   pkg.generate(requires : ['gobject-2.0', 'gmodule-no-export-2.0', 'gio-2.0'],

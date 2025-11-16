@@ -483,7 +483,7 @@ pkg.generate(libglib,
   name : 'GLib',
   description : 'C Utility Library',
 )
-meson.override_dependency('glib-2.0', libglib_dep)
+meson.override_dependency('glib-2.0-no-gir', libglib_dep)
 
 # FIXME: This needs to be added to the `depends` of every invocation of
 # glib_compile_resources in the build process. We can drop this when

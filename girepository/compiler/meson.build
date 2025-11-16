@@ -25,6 +25,8 @@ gicompilerepository = executable('gi-compile-repository', 'compiler.c',
   c_args: custom_c_args,
 )
 
+meson.override_find_program('gi-compile-repository', gicompilerepository)
+
 # Only override the user-installed compiler if we need to generate the GIRs
 # GLib, Gio, and GObject...
 if enable_gir
