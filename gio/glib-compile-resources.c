@@ -740,7 +740,7 @@ get_compiler_id (const char *compiler)
         compiler = "clang";
       else
         compiler = compiler_env;
-# elif __linux__
+# elif defined (__linux__) || defined (__GNU__)
       if (compiler_env == NULL || *compiler_env == '\0')
         compiler = "gcc";
       else

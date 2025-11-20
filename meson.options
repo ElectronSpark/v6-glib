@@ -154,6 +154,6 @@ option('introspection',
 
 option('file_monitor_backend',
        type : 'combo',
-       choices : ['auto', 'inotify', 'kqueue', 'libinotify-kqueue', 'win32'],
+       choices : ['auto', 'inotify', 'kqueue', 'libinotify-kqueue', 'win32', 'hurd'],
        value : 'auto',
        description : 'The name of the system API to use as a GFileMonitor backend')

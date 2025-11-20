@@ -56,11 +56,12 @@ struct _GLocalFileMonitorClass
   GFileMonitorClass parent_class;
 
   gboolean (* is_supported) (void);
-  void     (* start)        (GLocalFileMonitor *local_monitor,
+  gboolean (* start)        (GLocalFileMonitor *local_monitor,
                              const gchar *dirname,
                              const gchar *basename,
                              const gchar *filename,
-                             GFileMonitorSource *source);
+                             GFileMonitorSource *source,
+                             GError **error);
 
   gboolean mount_notify;
 };

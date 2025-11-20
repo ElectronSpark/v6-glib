@@ -49,12 +49,13 @@ g_inotify_file_monitor_is_supported (void)
   return _ih_startup ();
 }
 
-static void
+static gboolean
 g_inotify_file_monitor_start (GLocalFileMonitor  *local_monitor,
                               const gchar        *dirname,
                               const gchar        *basename,
                               const gchar        *filename,
-                              GFileMonitorSource *source)
+                              GFileMonitorSource *source,
+                              GError            **error)
 {
   GInotifyFileMonitor *inotify_monitor = G_INOTIFY_FILE_MONITOR (local_monitor);
   gboolean success G_GNUC_UNUSED  /* when compiling with G_DISABLE_ASSERT */;
@@ -64,7 +65,9 @@ g_inotify_file_monitor_start (GLocalFileMonitor  *local_monitor,
   g_assert (success);
 
   inotify_monitor->sub = _ih_sub_new (dirname, basename, filename, source);
+  /* inotify seems to never fail */
   _ih_sub_add (inotify_monitor->sub);
+  return TRUE;
 }
 
 static gboolean

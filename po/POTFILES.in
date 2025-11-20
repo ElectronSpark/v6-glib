@@ -179,6 +179,7 @@ gio/gwin32inputstream.c
 gio/gwin32outputstream.c
 gio/gzlibcompressor.c
 gio/gzlibdecompressor.c
+gio/hurd/ghurdfilemonitor.c
 gio/tests/gdbus-daemon.c
 gio/win32/gwinhttpfile.c
 girepository/compiler/compiler.c

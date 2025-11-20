@@ -1070,6 +1070,7 @@ _g_io_module_get_default (const gchar         *extension_point,
 extern GType g_inotify_file_monitor_get_type (void);
 extern GType g_kqueue_file_monitor_get_type (void);
 extern GType g_win32_file_monitor_get_type (void);
+extern GType g_hurd_file_monitor_get_type (void);
 
 extern GType _g_unix_volume_monitor_get_type (void);
 extern GType _g_local_vfs_get_type (void);
@@ -1354,6 +1355,9 @@ _g_io_modules_ensure_loaded (void)
 #endif
 #if defined(FILE_MONITOR_BACKEND_KQUEUE)
       g_type_ensure (g_kqueue_file_monitor_get_type ());
+#endif
+#ifdef __GNU__
+      g_type_ensure (g_hurd_file_monitor_get_type ());
 #endif
 #ifdef G_OS_WIN32
       g_type_ensure (_g_win32_volume_monitor_get_type ());

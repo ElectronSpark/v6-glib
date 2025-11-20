@@ -773,17 +773,18 @@ g_local_file_monitor_mounts_changed (GUnixMountMonitor *mount_monitor,
 }
 #endif
 
-static void
+static gboolean
 g_local_file_monitor_start (GLocalFileMonitor *local_monitor,
                             const gchar       *filename,
                             gboolean           is_directory,
                             GFileMonitorFlags  flags,
-                            GMainContext      *context)
+                            GMainContext      *context,
+                            GError           **error)
 {
   GLocalFileMonitorClass *class = G_LOCAL_FILE_MONITOR_GET_CLASS (local_monitor);
   GFileMonitorSource *source;
 
-  g_return_if_fail (G_IS_LOCAL_FILE_MONITOR (local_monitor));
+  g_return_val_if_fail (G_IS_LOCAL_FILE_MONITOR (local_monitor), FALSE);
 
   g_assert (!local_monitor->source);
 
@@ -816,9 +817,11 @@ g_local_file_monitor_start (GLocalFileMonitor *local_monitor,
 
   g_source_attach ((GSource *) source, context);
 
-  G_LOCAL_FILE_MONITOR_GET_CLASS (local_monitor)->start (local_monitor,
-                                                         source->dirname, source->basename, source->filename,
-                                                         source);
+  return G_LOCAL_FILE_MONITOR_GET_CLASS (local_monitor)->start (local_monitor,
+                                                                source->dirname,
+                                                                source->basename,
+                                                                source->filename,
+                                                                source, error);
 }
 
 static void
@@ -893,14 +896,25 @@ g_local_file_monitor_new_for_path (const gchar        *pathname,
                                    GError            **error)
 {
   GLocalFileMonitor *monitor;
-  gboolean is_remote_fs;
+  gboolean is_remote_fs, started;
 
   is_remote_fs = g_local_file_is_nfs_home (pathname);
 
   monitor = g_local_file_monitor_new (is_remote_fs, is_directory, error);
+  if (!monitor)
+    return NULL;
 
-  if (monitor)
-    g_local_file_monitor_start (monitor, pathname, is_directory, flags, g_main_context_get_thread_default ());
+  started = g_local_file_monitor_start (monitor, pathname, is_directory, flags,
+                                        g_main_context_get_thread_default (),
+                                        error);
+  if (!started)
+    {
+      /* Fall back to polling if the monitor could not start.  This primarily
+         happens when the file system the file is located on doesn't support
+         the file change notification mechanism.  */
+      g_object_unref (monitor);
+      return NULL;
+    }
 
   return G_FILE_MONITOR (monitor);
 }
@@ -915,19 +929,31 @@ g_local_file_monitor_new_in_worker (const gchar           *pathname,
                                     GError               **error)
 {
   GLocalFileMonitor *monitor;
-  gboolean is_remote_fs;
+  gboolean is_remote_fs, started;
+  gulong changed_id;
 
   is_remote_fs = g_local_file_is_nfs_home (pathname);
 
   monitor = g_local_file_monitor_new (is_remote_fs, is_directory, error);
+  if (!monitor)
+    return NULL;
 
-  if (monitor)
-    {
-      if (callback)
+  if (callback)
+    changed_id =
         g_signal_connect_data (monitor, "changed", G_CALLBACK (callback),
                                user_data, destroy_user_data, G_CONNECT_DEFAULT);
 
-      g_local_file_monitor_start (monitor, pathname, is_directory, flags, GLIB_PRIVATE_CALL(g_get_worker_context) ());
+  started = g_local_file_monitor_start (monitor, pathname, is_directory, flags,
+                                        GLIB_PRIVATE_CALL(g_get_worker_context) (),
+                                        error);
+
+  if (!started)
+    {
+      /* Ditto.  */
+      if (callback)
+        g_signal_handler_disconnect (monitor, changed_id);
+      g_object_unref (monitor);
+      return NULL;
     }
 
   return G_FILE_MONITOR (monitor);
