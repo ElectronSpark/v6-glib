@@ -1048,6 +1048,7 @@ g_key_file_load_unix_configurations (GKeyFile       *key_file,
   int cmp_ret = 0;
   GDir *dir;
   gchar *filename = NULL;
+  gchar *suffix = NULL;
   const gchar *file = NULL;
   gboolean ret = TRUE;
   GError *key_file_error = NULL;
@@ -1116,7 +1117,10 @@ g_key_file_load_unix_configurations (GKeyFile       *key_file,
      the list in the correct order */
   g_free (filename);
   if (config_suffix)
-    filename = g_strconcat (config_name, ".", config_suffix, ".d", NULL);
+    {
+      filename = g_strconcat (config_name, ".", config_suffix, ".d", NULL);
+      suffix = g_strconcat (".", config_suffix, NULL);
+    }
   else
     filename = g_strconcat (config_name, ".d", NULL);
 
@@ -1126,25 +1130,28 @@ g_key_file_load_unix_configurations (GKeyFile       *key_file,
     {
       while ((file = g_dir_read_name(dir)) != NULL)
         {
-          g_ptr_array_add (usr_list, g_strdup (file));
+          if (!suffix || g_str_has_suffix (file, suffix))
+            g_ptr_array_add (usr_list, g_strdup (file));
         }
-      g_dir_close (dir);
-    }
-  g_clear_error (&key_file_error);
-
-  g_free(scan_dir);
-  scan_dir = g_build_filename (etc_subdir, project, filename, NULL);
-  dir = g_dir_open (scan_dir, 0, &key_file_error);
-  if (dir)
-    {
-      while ((file = g_dir_read_name (dir)) != NULL)
-        g_ptr_array_add (etc_list, g_strdup (file));
-
       g_clear_pointer (&dir, g_dir_close);
     }
   g_clear_error (&key_file_error);
 
   g_free (scan_dir);
+
+  scan_dir = g_build_filename (etc_subdir, project, filename, NULL);
+  dir = g_dir_open (scan_dir, 0, &key_file_error);
+  if (dir)
+    {
+      while ((file = g_dir_read_name (dir)) != NULL)
+        if (!suffix || g_str_has_suffix (file, suffix))
+          g_ptr_array_add (etc_list, g_strdup (file));
+      g_clear_pointer (&dir, g_dir_close);
+    }
+  g_clear_error (&key_file_error);
+
+  g_free (scan_dir);
+  g_free (suffix);
 
   g_ptr_array_sort_values (usr_list, (GCompareFunc) g_strcmp0);
   g_ptr_array_sort_values (etc_list, (GCompareFunc) g_strcmp0);

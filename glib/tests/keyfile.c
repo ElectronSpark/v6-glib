@@ -1571,6 +1571,9 @@ test_load_unix_conf (void)
     unix_conf/etc/foo/bar.conf.d/1.conf
     unix_conf/etc/foo/bar.conf.d/2.conf
     unix_conf/usr/lib/foo/bar.conf.d/3.conf
+
+    do not read
+    unix_conf/etc/foo/bar.conf.d/4.other_suffix
    */
   loaded = g_key_file_load_unix_configurations (keyfile,
                                                 "foo",
