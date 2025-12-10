@@ -1009,7 +1009,7 @@ g_key_file_load_from_data (GKeyFile       *key_file,
  * @key_file: an empty [struct@GLib.KeyFile] struct
  * @project: (nullable): name of the project used as subdirectory
  * @etc_subdir: (nullable): absolute directory path for user changed configuration files (default "/etc")
- * @usr_subdir: (nullable): absolute directory path of vendor defined settings (often "/usr/lib")
+ * @usr_subdir: (nullable): absolute directory path of vendor defined settings (default "/usr/share")
  * @config_name: basename of the configuration file
  * @config_suffix (nullable): suffix of the configuration file
  * @flags: flags from [flags@GLib.KeyFileFlags]
@@ -1079,7 +1079,7 @@ g_key_file_load_unix_configurations (GKeyFile       *key_file,
     etc_subdir = "/etc";
 
   if (!usr_subdir)
-    usr_subdir = "";
+    usr_subdir = "/usr/share";
 
   if (config_suffix)
     filename = g_strconcat (config_name, ".", config_suffix, NULL);
@@ -1105,7 +1105,10 @@ g_key_file_load_unix_configurations (GKeyFile       *key_file,
       fd = g_open (path, O_RDONLY | O_CLOEXEC, 0);
     }
   if (fd != -1)
-    g_ptr_array_add (parsing_list, g_steal_pointer (&path));
+    {
+      g_ptr_array_add (parsing_list, g_steal_pointer (&path));
+      close (fd);
+    }
 
   g_clear_pointer (&path, g_free);
 
