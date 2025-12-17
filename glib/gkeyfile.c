@@ -57,6 +57,8 @@
 #define O_CLOEXEC 0
 #endif
 
+#define RUNDIR "/run"
+
 #include "gconvert.h"
 #include "gdataset.h"
 #include "gerror.h"
@@ -1045,7 +1047,6 @@ g_key_file_load_unix_configurations (GKeyFile       *key_file,
   gchar *path = NULL;
   gchar *scan_dir = NULL;
   int fd = 0;
-  int cmp_ret = 0;
   GDir *dir;
   gchar *filename = NULL;
   gchar *suffix = NULL;
@@ -1058,14 +1059,14 @@ g_key_file_load_unix_configurations (GKeyFile       *key_file,
   guint index_etc_list = 0;
   GPtrArray *usr_list = NULL;
   guint index_usr_list = 0;
+  GPtrArray *run_list = NULL;
+  guint index_run_list = 0;
   GKeyFile *parsed_key_file = NULL;
   gchar** groups = NULL;
   gchar** groups_ptr = NULL;
   gchar** keys = NULL;
   gchar** keys_ptr = NULL;
   gchar*  value = NULL;
-  gchar*  usr_path = NULL;
-  gchar*  etc_path = NULL;
 
   g_return_val_if_fail (key_file != NULL, FALSE);
   g_return_val_if_fail (config_name != NULL, FALSE);
@@ -1073,6 +1074,7 @@ g_key_file_load_unix_configurations (GKeyFile       *key_file,
   parsing_list = g_ptr_array_new_with_free_func (g_free);
   etc_list = g_ptr_array_new_with_free_func (g_free);
   usr_list = g_ptr_array_new_with_free_func (g_free);
+  run_list = g_ptr_array_new_with_free_func (g_free);
   parsed_key_file = g_key_file_new();
 
   /* Default is /etc */
@@ -1096,7 +1098,7 @@ g_key_file_load_unix_configurations (GKeyFile       *key_file,
   if (fd == -1)
     {
       g_free (path);
-      path = g_build_filename ("/run", project, filename, NULL);
+      path = g_build_filename (RUNDIR, project, filename, NULL);
       fd = g_open (path, O_RDONLY | O_CLOEXEC, 0);
     }
   if (fd == -1)
@@ -1123,7 +1125,7 @@ g_key_file_load_unix_configurations (GKeyFile       *key_file,
     }
   else
     filename = g_strconcat (config_name, ".d", NULL);
-
+  /* scanning /usr */
   scan_dir = g_build_filename (usr_subdir, project, filename, NULL);
   dir = g_dir_open (scan_dir, 0, &key_file_error);
   if (dir)
@@ -1136,9 +1138,20 @@ g_key_file_load_unix_configurations (GKeyFile       *key_file,
       g_clear_pointer (&dir, g_dir_close);
     }
   g_clear_error (&key_file_error);
-
   g_free (scan_dir);
-
+  /* scanning /run */
+  scan_dir = g_build_filename (RUNDIR, project, filename, NULL);
+  dir = g_dir_open (scan_dir, 0, &key_file_error);
+  if (dir)
+    {
+      while ((file = g_dir_read_name (dir)) != NULL)
+        if (!suffix || g_str_has_suffix (file, suffix))
+          g_ptr_array_add (run_list, g_strdup (file));
+      g_clear_pointer (&dir, g_dir_close);
+    }
+  g_clear_error (&key_file_error);
+  g_free (scan_dir);
+  /* scanning /etc */
   scan_dir = g_build_filename (etc_subdir, project, filename, NULL);
   dir = g_dir_open (scan_dir, 0, &key_file_error);
   if (dir)
@@ -1149,48 +1162,146 @@ g_key_file_load_unix_configurations (GKeyFile       *key_file,
       g_clear_pointer (&dir, g_dir_close);
     }
   g_clear_error (&key_file_error);
-
   g_free (scan_dir);
   g_free (suffix);
 
   g_ptr_array_sort_values (usr_list, (GCompareFunc) g_strcmp0);
+  g_ptr_array_sort_values (run_list, (GCompareFunc) g_strcmp0);
   g_ptr_array_sort_values (etc_list, (GCompareFunc) g_strcmp0);
 
+  // Pointers (indices) to track the current position in each input list
+  index_etc_list = 0;
+  index_run_list = 0;
   index_usr_list = 0;
-  for (index_etc_list = 0; index_etc_list < etc_list->len; index_etc_list++)
+  index_parsing_list = 0;
+
+  // Loop until all elements from all three lists have been considered
+  while (index_etc_list < etc_list->len || index_run_list < run_list->len || index_usr_list < usr_list->len)
     {
-      etc_path = (gchar *) g_ptr_array_index (etc_list, index_etc_list);
-      while (index_usr_list < usr_list->len)
+      // Pointers to the current smallest string from each list,
+      // or empty string if the list is exhausted
+      const gchar *current_etc = (index_etc_list < etc_list->len) ?
+        (gchar *) g_ptr_array_index (etc_list, index_etc_list) : "";
+      const gchar *current_run = (index_run_list < run_list->len) ?
+        (gchar *) g_ptr_array_index (run_list, index_run_list) : "";
+      const gchar *current_usr = (index_usr_list < usr_list->len) ?
+        (gchar *) g_ptr_array_index (usr_list, index_usr_list) : "";
+
+      // --- Find the current overall smallest string (alphabetically) ---
+
+      // Start with the 'etc' entry as the smallest candidate
+      const gchar *smallest = current_etc;
+      int list_priority = 1; // 1:etc, 2:run, 3:usr
+
+      // Compare with 'run' entry
+      if (strlen(current_run) > 0)
         {
-          usr_path = (gchar *) g_ptr_array_index (usr_list, index_usr_list);
-          cmp_ret = g_strcmp0 (usr_path, etc_path);
-          if (cmp_ret < 0)
+          if (strlen(smallest) == 0 || g_strcmp0 (current_run, smallest) < 0)
             {
-              g_ptr_array_add (parsing_list,
-                               g_build_filename (usr_subdir, project, filename, usr_path, NULL));
+              smallest = current_run;
+              list_priority = 2;
+            }
+          else if (g_strcmp0 (current_run, smallest) == 0)
+            {
+              // If equal, skip current_run due to 'etc' priority (priority 1)
+              // We advance the run pointer but keep 'smallest' as current_etc
+              // The current etc entry will be added to the merged list later
+              index_run_list++;
+              current_run = (index_run_list < run_list->len) ?
+                g_ptr_array_index (run_list, index_run_list) : "";
+              // Re-evaluate smallest to check if the new current_run is the smallest overall
+              continue; // Restart the loop to re-evaluate the minimum after advancing j
+            }
+        }
+
+      // Compare with 'usr' entry
+      if (strlen(current_usr) > 0)
+        {
+          if (strlen(smallest) == 0 || g_strcmp0 (current_usr, smallest) < 0)
+            {
+              smallest = current_usr;
+              list_priority = 3;
+            }
+          else if (g_strcmp0 (current_usr, smallest) == 0)
+            {
+              // If equal, skip current_usr due to 'etc' (priority 1) or 'run' (priority 2)
+              // We advance the usr pointer but keep 'smallest'
               index_usr_list++;
+              current_usr = (index_usr_list < usr_list->len) ?
+                g_ptr_array_index (usr_list, index_usr_list) : "";
+              // Re-evaluate smallest to check if the new current_usr is the smallest overall
+              continue; // Restart the loop to re-evaluate the minimum after advancing k
             }
-          else
+        }
+
+      // At this point, 'smallest' holds the alphabetically smallest string
+      // that hasn't been added yet, giving priority to etc, then run.
+
+      // If 'smallest' is "", all lists are exhausted
+      if (strlen(smallest) == 0)
+        {
+          break;
+        }
+
+      // --- Add 'smallest' to the merged list ---
+
+      // Check for deduplication against the *last* element added to the merged list
+      // This handles cases like a = b = c, where b and c are skipped.
+      // Or a < b < c, but the previous element was the same as 'smallest'
+      if (index_parsing_list > 0 &&
+          g_strcmp0 (smallest, g_ptr_array_index (parsing_list,index_parsing_list - 1)) == 0)
+        {
+            // Already added in the previous iteration, just advance the appropriate pointer(s)
+            // This case should primarily handle a=b=c, where the 'a' was added,
+            // and the 'b' and 'c' pointers were advanced during the comparison step.
+        }
+      else
+        {
+          // Found a new, smallest, unique element.
+          switch (list_priority)
             {
-              if (cmp_ret == 0)
-                {
-                  index_usr_list++;
-                }
+            case 1:
+              g_ptr_array_add (parsing_list,
+                               g_build_filename (etc_subdir, project, filename, smallest, NULL));
               break;
+            case 2:
+              g_ptr_array_add (parsing_list,
+                               g_build_filename (RUNDIR, project, filename, smallest, NULL));
+              break;
+            case 3:
+              g_ptr_array_add (parsing_list,
+                               g_build_filename (usr_subdir, project, filename, smallest, NULL));
+              break;
+            default:
             }
-         }
-      g_ptr_array_add (parsing_list,
-                       g_build_filename (etc_subdir, project, filename, etc_path, NULL));
+          index_parsing_list++;
+        }
+
+        // --- Advance the pointer(s) for the element(s) just processed ---
+        // This must be done for ALL pointers that point to the string 'smallest'
+        // to correctly handle deduplication (e.g., 'a' in etc, 'a' in run, 'b' in usr)
+
+        // Advance 'etc' pointer if etc_list[index_etc_list] is equal to the 'smallest' string
+        if (index_etc_list < etc_list->len && strcmp(g_ptr_array_index (etc_list, index_etc_list), smallest) == 0)
+          {
+            index_etc_list++;
+          }
+
+        // Advance 'run' pointer if run_list[index_run_list] is equal to the 'smallest' string
+        // We only advance 'index_run_list' if it wasn't already advanced inside the while loop's comparison logic
+        if (index_run_list < run_list->len && strcmp(g_ptr_array_index (run_list, index_run_list), smallest) == 0)
+          {
+            index_run_list++;
+          }
+
+        // Advance 'usr' pointer if usr_list[index_var_list] is equal to the 'smallest' string
+        // We only advance 'index_usr_list' if it wasn't already advanced inside the while loop's comparison logic
+        if (index_usr_list < usr_list->len && strcmp(g_ptr_array_index (usr_list, index_usr_list), smallest) == 0)
+          {
+            index_usr_list++;
+          }
     }
 
-  while (index_usr_list < usr_list->len)
-    {
-      g_ptr_array_add (parsing_list,
-                       g_build_filename (usr_subdir, project, filename,
-                                         (gchar *) g_ptr_array_index (usr_list, index_usr_list),
-                                         NULL));
-      index_usr_list++;
-    }
   g_free (filename);
 
   /* Parsing all configuration files in the correct order and merging the entries.*/
