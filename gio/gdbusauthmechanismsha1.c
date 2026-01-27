@@ -282,8 +282,9 @@ ensure_keyring_directory (GError **error)
 
   g_return_val_if_fail (error == NULL || *error == NULL, NULL);
 
+  is_setuid = GLIB_PRIVATE_CALL (g_check_setuid) ();
   e = g_getenv ("G_DBUS_COOKIE_SHA1_KEYRING_DIR");
-  if (e != NULL)
+  if (!is_setuid && e != NULL)
     {
       path = g_strdup (e);
     }
@@ -344,7 +345,6 @@ ensure_keyring_directory (GError **error)
 #endif  /* if !G_OS_UNIX */
 
   /* Only create the directory if not running as setuid */
-  is_setuid = GLIB_PRIVATE_CALL (g_check_setuid) ();
   if (!is_setuid &&
       g_mkdir_with_parents (path, 0700) != 0)
     {
