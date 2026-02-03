@@ -132,10 +132,18 @@ G_BEGIN_DECLS
 #elif defined (_MSC_VER)
 
 #include <windows.h>
+#include <stdint.h>
 #include <intrin.h>
+#ifdef _M_ARM64
+#include <arm64intr.h>
+#endif
 
 #if (!defined (_M_IX86) && !defined (_M_AMD64)) || _MSC_VER >= 1920  /* VS2019 */
 #define HAVE_ISO_VOLATILE_INTRINSICS
+#endif
+
+#if _MSC_FULL_VER >= 193632407
+#define HAVE_LOAD_ACQUIRE_INTRINSIC
 #endif
 
 #if defined (HAVE_ISO_VOLATILE_INTRINSICS)
@@ -210,6 +218,108 @@ g_atomic_pointer_set_relaxed (void *atomic,
 
 #endif /* ! HAVE_ISO_VOLATILE_INTRINSICS */
 
+#if defined (_M_IX86) || defined (_M_X64)
+
+static inline int
+g_atomic_int_get_acquire (int *atomic)
+{
+  int result = g_atomic_int_get_relaxed (atomic);
+  _ReadWriteBarrier ();
+
+  return result;
+}
+
+static inline void
+g_atomic_int_set_release (int *atomic,
+                          int  value)
+{
+  _ReadWriteBarrier ();
+  g_atomic_int_set_relaxed (atomic, value);
+}
+
+static inline void *
+g_atomic_pointer_get_acquire (void *atomic)
+{
+  void *result = g_atomic_pointer_get_relaxed (atomic);
+  _ReadWriteBarrier ();
+
+  return result;
+}
+
+static inline void
+g_atomic_pointer_set_release (void *atomic,
+                              void *value)
+{
+  _ReadWriteBarrier ();
+  g_atomic_pointer_set_relaxed (atomic, value);
+}
+
+#elif defined (_M_ARM64)
+
+G_STATIC_ASSERT (sizeof (int) == 4);
+
+static inline int
+g_atomic_int_get_acquire (int *atomic)
+{
+#if defined (HAVE_LOAD_ACQUIRE_INTRINSIC)
+  int result = (int) __load_acquire32 ((unsigned __int32 *) atomic);
+#elif defined (__ARM_ARCH) && __ARM_ARCH >= (8 * 100 + 3) /* ARMv8.3 */
+  int result = __ldapr32 ((unsigned __int32 *) atomic);
+#else
+  int result = __ldar32 ((unsigned __int32 *) atomic);
+#endif
+  _ReadWriteBarrier ();
+
+  return result;
+}
+
+static inline void
+g_atomic_int_set_release (int *atomic,
+                          int  value)
+{
+  _ReadWriteBarrier ();
+  __stlr32 ((unsigned __int32 *) atomic, (unsigned __int32) value);
+}
+
+#if GLIB_SIZEOF_VOID_P == 8
+#define __load_acquire_ptr __load_acquire64
+#define __ldapr_ptr __ldapr64
+#define __ldar_ptr __ldar64
+#define __stlr_ptr __stlr64
+#else
+#define __load_acquire_ptr __load_acquire32
+#define __ldapr_ptr __ldapr32
+#define __ldar_ptr __ldar32
+#define __stlr_ptr __stlr32
+#endif
+
+static inline void *
+g_atomic_pointer_get_acquire (void *atomic)
+{
+#if defined (HAVE_LOAD_ACQUIRE_INTRINSIC)
+  void *result = (void *) (uintptr_t) __load_acquire_ptr ((uintptr_t *) atomic);
+#elif defined (__ARM_ARCH) && __ARM_ARCH >= 8 * 100 + 3 /* ARMv8.3 */
+  void *result = (void *) (uintptr_t) __ldapr_ptr ((uintptr_t *) atomic);
+#else
+  void *result = (void *) (uintptr_t) __ldar_ptr ((uintptr_t *) atomic);
+#endif
+  _ReadWriteBarrier ();
+
+  return result;
+}
+
+static inline void
+g_atomic_pointer_set_release (void *atomic,
+                              void *value)
+{
+  _ReadWriteBarrier ();
+  __stlr_ptr ((uintptr_t *) atomic, (uintptr_t) value);
+}
+
+#else
+
+#message "Please, consider fine-tuning weakly ordered atomics for this architecture"
+
 static inline int
 g_atomic_int_get_acquire (int *atomic)
 {
@@ -252,9 +362,12 @@ g_atomic_pointer_set_release (void *atomic,
   g_atomic_pointer_set_relaxed (atomic, value);
 }
 
+#endif
+
 #else /* ! __ATOMIC_SEQ_CST ! __GNUC__ ! _MSC_VER */
 
-#message "Please, implement weakly-ordered atomics for this toolchain.  Using seq-cst fallbacks..."
+#message "Please, implement weakly-ordered atomics for this toolchain."
+#message "Using sequentially-consistent atomics as fallbacks..."
 
 #define g_atomic_int_get_relaxed(atomic)             g_atomic_int_get(atomic)
 #define g_atomic_int_set_relaxed(atomic, newval)     g_atomic_int_set(atomic, newval)

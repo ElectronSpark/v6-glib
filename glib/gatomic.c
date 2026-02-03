@@ -622,6 +622,46 @@ guintptr
  * http://msdn.microsoft.com/en-us/library/ms684122(v=vs.85).aspx
  */
 
+#if defined (_M_IX86) || defined (_M_X64)
+
+gint
+(g_atomic_int_get) (const volatile gint *atomic)
+{
+  int result = g_atomic_int_get_relaxed (atomic);
+  _ReadWriteBarrier ();
+
+  return result;
+}
+
+void
+(g_atomic_int_set) (volatile gint *atomic,
+                    gint           newval)
+{
+  (void) InterlockedExchange (atomic, newval);
+}
+
+#elif defined (_M_ARM64)
+
+gint
+(g_atomic_int_get) (const volatile gint *atomic)
+{
+  int result = (int) __ldar32 ((unsigned __int32 *) atomic);
+  _ReadWriteBarrier ();
+
+  return result;
+}
+
+void
+(g_atomic_int_set) (volatile gint *atomic,
+                    gint           newval)
+{
+  _ReadWriteBarrier ();
+  __stlr32 ((unsigned __int32 *) atomic, (unsigned __int32) newval);
+  _ReadWriteBarrier ();
+}
+
+#else
+
 gint
 (g_atomic_int_get) (const volatile gint *atomic)
 {
@@ -638,6 +678,8 @@ void
 {
   (void) InterlockedExchange (atomic, newval);
 }
+
+#endif
 
 void
 (g_atomic_int_inc) (volatile gint *atomic)
@@ -716,6 +758,47 @@ guint
 #endif
 }
 
+#if defined (_M_IX86) || defined (_M_X64)
+
+gpointer
+(g_atomic_pointer_get) (const volatile void *atomic)
+{
+  gpointer result = g_atomic_pointer_get_relaxed (atomic);
+  _ReadWriteBarrier ();
+
+  return result;
+}
+
+void
+(g_atomic_pointer_set) (volatile void *atomic,
+                        gpointer       newval)
+{
+  void * volatile *p = (void * volatile *) atomic;
+  (void) InterlockedExchangePointer (p, newval);
+}
+
+#elif defined (_M_ARM64)
+
+gpointer
+(g_atomic_pointer_get) (const volatile void *atomic)
+{
+  void *result = (void *) __ldar_ptr ((uintptr_t *) atomic);
+  _ReadWriteBarrier ();
+
+  return result;
+}
+
+void
+(g_atomic_pointer_set) (volatile void *atomic,
+                        gpointer       newval)
+{
+  _ReadWriteBarrier ();
+  __stlr_ptr ((uintptr_t *) atomic, (uintptr_t) newval);
+  _ReadWriteBarrier ();
+}
+
+#else
+
 gpointer
 (g_atomic_pointer_get) (const volatile void *atomic)
 {
@@ -733,6 +816,8 @@ void
   void * volatile *p = (void * volatile *) atomic;
   (void) InterlockedExchangePointer (p, newval);
 }
+
+#endif
 
 gboolean
 (g_atomic_pointer_compare_and_exchange) (volatile void *atomic,
