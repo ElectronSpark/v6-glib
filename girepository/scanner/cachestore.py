@@ -19,15 +19,12 @@
 #
 
 import errno
-import glob
 import hashlib
 import os
 import shutil
 import sys
 import tempfile
 import pickle
-
-import scanner
 
 from . import utils
 
@@ -36,13 +33,12 @@ _CACHE_VERSION_FILENAME = '.cache-version'
 
 
 def _get_versionhash():
-    toplevel = os.path.dirname(scanner.__file__)
-    sources = glob.glob(os.path.join(toplevel, '*.py'))
-    sources.append(sys.argv[0])
+    # This approach seems a little questionable, maybe it'd possible to expose
+    # something like the build-id of the executable to python?
+
     # Using mtimes is a bit (5x) faster than hashing the file contents
-    mtimes = (str(os.stat(source).st_mtime) for source in sources)
     # ASCII encoding is sufficient since we are only dealing with numbers.
-    return hashlib.sha1(''.join(mtimes).encode('ascii')).hexdigest()
+    return hashlib.sha1(str(os.stat(sys.executable).st_mtime).encode('ascii')).hexdigest()
 
 
 class CacheStore(object):
