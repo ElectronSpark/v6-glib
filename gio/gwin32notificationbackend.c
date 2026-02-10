@@ -29,6 +29,7 @@
 
 #include <windows.h>
 
+#include "gapplication.h"
 #include "gnotificationbackend.h"
 
 #include "giomodule-priv.h"
@@ -109,6 +110,8 @@ G_DEFINE_TYPE_WITH_CODE (GWin32NotificationBackend, g_win32_notification_backend
  * which is for the NUL-terminator */
 #define MAX_BODY_COUNT (G_N_ELEMENTS (((NOTIFYICONDATA *) 0)->szInfo) - 1)
 
+#define WM_APP_NOTIFYCALLBACK (WM_APP + 1)
+
 /* Initializes `out` with a NOTIFYICONDATA struct, to be passed to
  * Shell_NotifyIcon (NIM_ADD, ...) calls. */
 #define G_NOTIFYICONDATA_INIT(out)                            \
@@ -117,8 +120,10 @@ G_DEFINE_TYPE_WITH_CODE (GWin32NotificationBackend, g_win32_notification_backend
     *(out) = (NOTIFYICONDATA){                                \
       .cbSize = sizeof (NOTIFYICONDATA),                      \
       .hWnd = hwnd,                                           \
-      .uFlags = NIF_ICON,                                     \
+      .uFlags = NIF_ICON | NIF_MESSAGE,                       \
       .hIcon = LoadIcon (exe_module (), MAKEINTRESOURCE (1)), \
+      .uCallbackMessage = WM_APP_NOTIFYCALLBACK,              \
+      .uVersion = NOTIFYICON_VERSION_4,                       \
     };                                                        \
                                                               \
     if (!(out)->hIcon)                                        \
@@ -293,6 +298,10 @@ destroy_window_worker (void)
 
   g_assert (hwnd_state == HWND_STATE_DESTROYING);
 
+  GWeakRef *weak_ref = (GWeakRef *) GetWindowLongPtr (hwnd, GWLP_USERDATA);
+  g_weak_ref_clear (weak_ref);
+  g_free (weak_ref);
+
   DestroyWindow (hwnd);
   hwnd = NULL;
   UnregisterClass (MAKEINTATOM (wnd_klass), this_module ());
@@ -334,14 +343,18 @@ g_win32_notification_backend_dispose (GObject *self)
   G_OBJECT_CLASS (g_win32_notification_backend_parent_class)->dispose (self);
 }
 
+static gboolean
+activate_app (GApplication *app)
+{
+  g_application_activate (app);
+
+  return G_SOURCE_REMOVE;
+}
+
 /* Not dummy anymore... */
 static LRESULT CALLBACK
 dummy_WndProc (HWND _hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 {
-  /* FIXME: We could add some nice features:
-   *
-   * - If we got notification icon click event, activate the application. */
-
   static UINT msg_TaskbarCreated;
 
   switch (message)
@@ -353,10 +366,33 @@ dummy_WndProc (HWND _hwnd, UINT message, WPARAM wparam, LPARAM lparam)
           {
             g_warning ("win32-notification: RegisterWindowMessage failed: '%ld'", GetLastError ());
           }
+
+        CREATESTRUCT *cs = (CREATESTRUCT *) lparam;
+        SetWindowLongPtr (_hwnd, GWLP_USERDATA, (LONG_PTR) cs->lpCreateParams);
         break;
       }
     case WM_NULL:
       {
+        break;
+      }
+    case WM_APP_NOTIFYCALLBACK:
+      {
+        switch (LOWORD (lparam))
+          {
+          /* Handles ENTER, SPACE and LEFT_CLICK keystrokes */
+          case NIN_SELECT:
+          case NIN_KEYSELECT:
+            {
+              GWeakRef *weak_ref = (GWeakRef *) GetWindowLongPtr (_hwnd, GWLP_USERDATA);
+              GApplication *app = (GApplication *) g_weak_ref_get (weak_ref);
+              if (app)
+                {
+                  g_idle_add_full (G_PRIORITY_DEFAULT_IDLE,
+                                   G_SOURCE_FUNC (activate_app), app,
+                                   g_object_unref);
+                }
+            }
+          }
         break;
       }
     default:
@@ -375,14 +411,14 @@ dummy_WndProc (HWND _hwnd, UINT message, WPARAM wparam, LPARAM lparam)
             NOTIFYICONDATA notify_singleton;
             G_NOTIFYICONDATA_INIT (&notify_singleton);
 
-            if (!Shell_NotifyIcon (NIM_ADD, &notify_singleton))
+            if (!Shell_NotifyIcon (NIM_ADD, &notify_singleton) ||
+                !Shell_NotifyIcon (NIM_SETVERSION, &notify_singleton))
               {
                 hwnd_state = HWND_STATE_FAILED;
               }
             else
               {
                 hwnd_state = HWND_STATE_READY;
-                Shell_NotifyIcon (NIM_SETVERSION, &notify_singleton);
               }
 
             g_cond_broadcast (&hwnd_cond);
@@ -396,8 +432,10 @@ dummy_WndProc (HWND _hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 
 /* Runs on GLib worker thread */
 static gboolean
-create_window_worker (void)
+create_window_worker (gpointer user_data)
 {
+  GWeakRef *app_weak = (GWeakRef *) user_data;
+
   g_mutex_lock (&hwnd_mutex);
 
   g_assert (hwnd_state == HWND_STATE_INITIALIZING);
@@ -413,11 +451,13 @@ create_window_worker (void)
     {
       g_critical ("win32-notification: RegisterClass failed: %ld", GetLastError ());
       hwnd_state = HWND_STATE_FAILED;
+      g_weak_ref_clear (app_weak);
+      g_free (app_weak);
       goto err_out;
     }
 
   hwnd = CreateWindow (MAKEINTATOM (wnd_klass), NULL, WS_POPUP,
-                       0, 0, 0, 0, NULL, NULL, this_module (), NULL);
+                       0, 0, 0, 0, NULL, NULL, this_module (), app_weak);
 
   if (!hwnd)
     {
@@ -425,10 +465,10 @@ create_window_worker (void)
       UnregisterClass (MAKEINTATOM (wnd_klass), this_module ());
       wnd_klass = 0;
       hwnd_state = HWND_STATE_FAILED;
+      g_weak_ref_clear (app_weak);
+      g_free (app_weak);
       goto err_out;
     }
-
-  g_ref_count_init (&hwnd_refcount);
 
   /* Create the notification icon for the first time */
 
@@ -441,11 +481,27 @@ create_window_worker (void)
        * and wait until dummy_WndProc receives TaskbarCreated message */
       hwnd_state = HWND_STATE_INITIALIZING_NOTIFY_ICON;
     }
+  else if (!Shell_NotifyIcon (NIM_SETVERSION, &notify_singleton))
+    {
+      /* We require NOTIFYICON_VERSION_4 features, this is an unlikely path
+       * since it can only fail in very old Windows systems (pre-Windows 2000) */
+
+      g_warning ("Windows system unsupported for sending notifications");
+      DestroyWindow (hwnd);
+      hwnd = NULL;
+      UnregisterClass (MAKEINTATOM (wnd_klass), this_module ());
+      wnd_klass = 0;
+      hwnd_state = HWND_STATE_FAILED;
+      g_weak_ref_clear (app_weak);
+      g_free (app_weak);
+      goto err_out;
+    }
   else
     {
-      Shell_NotifyIcon (NIM_SETVERSION, &notify_singleton);
       hwnd_state = HWND_STATE_READY;
     }
+
+  g_ref_count_init (&hwnd_refcount);
 
 err_out:
   g_cond_broadcast (&hwnd_cond);
@@ -568,8 +624,14 @@ g_win32_notification_backend_init (GWin32NotificationBackend *backend)
     {
       hwnd_state = HWND_STATE_INITIALIZING;
       needs_inc = FALSE; /* Alredy incremented in worker */
+
+      GNotificationBackend *parent = G_NOTIFICATION_BACKEND (backend);
+
+      GWeakRef *weak_ref = g_new (GWeakRef, 1);
+      g_weak_ref_init (weak_ref, parent->application);
+
       g_main_context_invoke (GLIB_PRIVATE_CALL (g_get_worker_context) (),
-                             G_SOURCE_FUNC (create_window_worker), NULL);
+                             G_SOURCE_FUNC (create_window_worker), weak_ref);
     }
 
   while (hwnd_state == HWND_STATE_INITIALIZING)
