@@ -110,6 +110,11 @@ G_DEFINE_TYPE_WITH_CODE (GWin32NotificationBackend, g_win32_notification_backend
  * which is for the NUL-terminator */
 #define MAX_BODY_COUNT (G_N_ELEMENTS (((NOTIFYICONDATA *) 0)->szInfo) - 1)
 
+/* Maximum number of UTF-16 code units that can be written into
+ * NOTIFYICONDATA.szTip array, it does not count one element
+ * which is for the NUL-terminator */
+#define MAX_TIP_COUNT (G_N_ELEMENTS (((NOTIFYICONDATA *) 0)->szTip) - 1)
+
 #define WM_APP_NOTIFYCALLBACK (WM_APP + 1)
 
 /* Initializes `out` with a NOTIFYICONDATA struct, to be passed to
@@ -120,7 +125,7 @@ G_DEFINE_TYPE_WITH_CODE (GWin32NotificationBackend, g_win32_notification_backend
     *(out) = (NOTIFYICONDATA){                                \
       .cbSize = sizeof (NOTIFYICONDATA),                      \
       .hWnd = hwnd,                                           \
-      .uFlags = NIF_ICON | NIF_MESSAGE,                       \
+      .uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP | NIF_SHOWTIP, \
       .hIcon = LoadIcon (exe_module (), MAKEINTRESOURCE (1)), \
       .uCallbackMessage = WM_APP_NOTIFYCALLBACK,              \
       .uVersion = NOTIFYICON_VERSION_4,                       \
@@ -130,6 +135,35 @@ G_DEFINE_TYPE_WITH_CODE (GWin32NotificationBackend, g_win32_notification_backend
       {                                                       \
         /* Fallback if the application has no icon */         \
         (out)->hIcon = LoadIcon (NULL, IDI_APPLICATION);      \
+      }                                                       \
+                                                              \
+    /* Icon tooltip based on g_get_application_name */        \
+                                                              \
+    const gchar *_tip_utf8 = g_get_application_name ();       \
+    glong _items_written;                                     \
+    GError *_error = NULL;                                    \
+    if (_tip_utf8)                                            \
+      {                                                       \
+        WCHAR *_tip_utf16 = g_utf8_to_utf16 (_tip_utf8, -1, NULL, &_items_written, &_error); \
+        if (_error)                                           \
+          {                                                   \
+            g_critical ("Invalid UTF-8 in application name: %s", _error->message); \
+            g_error_free (_error);                            \
+          }                                                   \
+        else                                                  \
+          {                                                   \
+            g_assert (_items_written >= 0);                   \
+            if ((size_t) _items_written > MAX_TIP_COUNT)      \
+              {                                               \
+                g_warning ("Application name too long for notification tool-tip, truncating it"); \
+                _items_written = MAX_TIP_COUNT;               \
+                if (IS_LOW_SURROGATE (_tip_utf16[_items_written])) \
+                  _items_written--;                           \
+              }                                               \
+            memcpy (&(out)->szTip, _tip_utf16, _items_written * sizeof (WCHAR)); \
+            (out)->szTip[_items_written] = L'\0';             \
+            g_free (_tip_utf16);                              \
+          }                                                   \
       }                                                       \
   }                                                           \
   G_STMT_END
