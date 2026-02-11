@@ -22,6 +22,7 @@
 #include "config.h"
 
 #include "gatomic.h"
+#include "gatomicprivate.h"
 
 /**
  * G_ATOMIC_LOCK_FREE:
@@ -62,7 +63,7 @@
  * Gets the current value of @atomic.
  *
  * This call acts as a full compiler and hardware
- * memory barrier (before the get).
+ * memory barrier.
  *
  * While @atomic has a `volatile` qualifier, this is a historical artifact and
  * the pointer passed to it should not be `volatile`.
@@ -85,7 +86,7 @@ gint
  * Sets the value of @atomic to @newval.
  *
  * This call acts as a full compiler and hardware
- * memory barrier (after the set).
+ * memory barrier.
  *
  * While @atomic has a `volatile` qualifier, this is a historical artifact and
  * the pointer passed to it should not be `volatile`.
@@ -351,7 +352,7 @@ guint
  * Gets the current value of @atomic.
  *
  * This call acts as a full compiler and hardware
- * memory barrier (before the get).
+ * memory barrier.
  *
  * While @atomic has a `volatile` qualifier, this is a historical artifact and
  * the pointer passed to it should not be `volatile`.
@@ -374,7 +375,7 @@ gpointer
  * Sets the value of @atomic to @newval.
  *
  * This call acts as a full compiler and hardware
- * memory barrier (after the set).
+ * memory barrier.
  *
  * While @atomic has a `volatile` qualifier, this is a historical artifact and
  * the pointer passed to it should not be `volatile`.
@@ -606,79 +607,79 @@ guintptr
 #elif defined (G_PLATFORM_WIN32)
 
 #include <windows.h>
-#if !defined(_M_AMD64) && !defined (_M_IA64) && !defined(_M_X64) && !(defined _MSC_VER && _MSC_VER <= 1200)
-#define InterlockedAnd _InterlockedAnd
-#define InterlockedOr _InterlockedOr
-#define InterlockedXor _InterlockedXor
-#endif
 
-#if !defined (_MSC_VER) || _MSC_VER <= 1200
-#include "gmessages.h"
-/* Inlined versions for older compiler */
-static LONG
-_gInterlockedAnd (volatile guint *atomic,
-                  guint           val)
-{
-  LONG i, j;
-
-  j = *atomic;
-  do {
-    i = j;
-    j = InterlockedCompareExchange(atomic, i & val, i);
-  } while (i != j);
-
-  return j;
-}
-#define InterlockedAnd(a,b) _gInterlockedAnd(a,b)
-static LONG
-_gInterlockedOr (volatile guint *atomic,
-                 guint           val)
-{
-  LONG i, j;
-
-  j = *atomic;
-  do {
-    i = j;
-    j = InterlockedCompareExchange(atomic, i | val, i);
-  } while (i != j);
-
-  return j;
-}
-#define InterlockedOr(a,b) _gInterlockedOr(a,b)
-static LONG
-_gInterlockedXor (volatile guint *atomic,
-                  guint           val)
-{
-  LONG i, j;
-
-  j = *atomic;
-  do {
-    i = j;
-    j = InterlockedCompareExchange(atomic, i ^ val, i);
-  } while (i != j);
-
-  return j;
-}
-#define InterlockedXor(a,b) _gInterlockedXor(a,b)
+#if defined (_M_IX86) && defined (_MSC_VER) && _MSC_VER <= 1800 /* VS2013 */
+/* Older Windows SDKs did not provide definitions of InterlockedAnd,
+ * InterlockedOr, and InterlockedXor on x86. This is also stated on
+ * MSDN: "for the x86 architecture, use the compiler intrinsic directly".
+ *
+ * https://bugzilla.gnome.org/show_bug.cgi?id=652000
+ */
+#include <intrin.h>
 #endif
 
 /*
  * http://msdn.microsoft.com/en-us/library/ms684122(v=vs.85).aspx
  */
+
+#if defined (_M_IX86) || defined (_M_X64)
+
 gint
 (g_atomic_int_get) (const volatile gint *atomic)
 {
-  MemoryBarrier ();
-  return *atomic;
+  int result = g_atomic_int_get_relaxed (atomic);
+  _ReadWriteBarrier ();
+
+  return result;
 }
 
 void
 (g_atomic_int_set) (volatile gint *atomic,
                     gint           newval)
 {
-  *atomic = newval;
-  MemoryBarrier ();
+  (void) InterlockedExchange (atomic, newval);
 }
+
+#elif defined (_M_ARM64)
+
+gint
+(g_atomic_int_get) (const volatile gint *atomic)
+{
+  int result = (int) __ldar32 ((unsigned __int32 *) atomic);
+  _ReadWriteBarrier ();
+
+  return result;
+}
+
+void
+(g_atomic_int_set) (volatile gint *atomic,
+                    gint           newval)
+{
+  _ReadWriteBarrier ();
+  __stlr32 ((unsigned __int32 *) atomic, (unsigned __int32) newval);
+  _ReadWriteBarrier ();
+}
+
+#else
+
+gint
+(g_atomic_int_get) (const volatile gint *atomic)
+{
+  int result = g_atomic_int_get_relaxed (atomic);
+  _ReadWriteBarrier ();
+  MemoryBarrier ();
+
+  return result;
+}
+
+void
+(g_atomic_int_set) (volatile gint *atomic,
+                    gint           newval)
+{
+  (void) InterlockedExchange (atomic, newval);
+}
+
+#endif
 
 void
 (g_atomic_int_inc) (volatile gint *atomic)
@@ -728,42 +729,95 @@ guint
 (g_atomic_int_and) (volatile guint *atomic,
                     guint           val)
 {
+#if defined (_M_IX86) && defined (_MSC_VER) && _MSC_VER <= 1800 /* VS2013 */
+  return _InterlockedAnd (atomic, val);
+#else
   return InterlockedAnd (atomic, val);
+#endif
 }
 
 guint
 (g_atomic_int_or) (volatile guint *atomic,
                    guint           val)
 {
+#if defined (_M_IX86) && defined (_MSC_VER) && _MSC_VER <= 1800 /* VS2013 */
+  return _InterlockedOr (atomic, val);
+#else
   return InterlockedOr (atomic, val);
+#endif
 }
 
 guint
 (g_atomic_int_xor) (volatile guint *atomic,
                     guint           val)
 {
+#if defined (_M_IX86) && defined (_MSC_VER) && _MSC_VER <= 1800 /* VS2013 */
+  return _InterlockedXor (atomic, val);
+#else
   return InterlockedXor (atomic, val);
+#endif
 }
 
+#if defined (_M_IX86) || defined (_M_X64)
 
 gpointer
 (g_atomic_pointer_get) (const volatile void *atomic)
 {
-  const gpointer *ptr = atomic;
+  gpointer result = g_atomic_pointer_get_relaxed (atomic);
+  _ReadWriteBarrier ();
 
-  MemoryBarrier ();
-  return *ptr;
+  return result;
 }
 
 void
 (g_atomic_pointer_set) (volatile void *atomic,
                         gpointer       newval)
 {
-  gpointer *ptr = atomic;
-
-  *ptr = newval;
-  MemoryBarrier ();
+  void * volatile *p = (void * volatile *) atomic;
+  (void) InterlockedExchangePointer (p, newval);
 }
+
+#elif defined (_M_ARM64)
+
+gpointer
+(g_atomic_pointer_get) (const volatile void *atomic)
+{
+  void *result = (void *) __ldar_ptr ((uintptr_t *) atomic);
+  _ReadWriteBarrier ();
+
+  return result;
+}
+
+void
+(g_atomic_pointer_set) (volatile void *atomic,
+                        gpointer       newval)
+{
+  _ReadWriteBarrier ();
+  __stlr_ptr ((uintptr_t *) atomic, (uintptr_t) newval);
+  _ReadWriteBarrier ();
+}
+
+#else
+
+gpointer
+(g_atomic_pointer_get) (const volatile void *atomic)
+{
+  gpointer result = g_atomic_pointer_get_relaxed (atomic);
+  _ReadWriteBarrier ();
+  MemoryBarrier ();
+
+  return result;
+}
+
+void
+(g_atomic_pointer_set) (volatile void *atomic,
+                        gpointer       newval)
+{
+  void * volatile *p = (void * volatile *) atomic;
+  (void) InterlockedExchangePointer (p, newval);
+}
+
+#endif
 
 gboolean
 (g_atomic_pointer_compare_and_exchange) (volatile void *atomic,
@@ -810,6 +864,8 @@ guintptr
 {
 #if GLIB_SIZEOF_VOID_P == 8
   return InterlockedAnd64 (atomic, val);
+#elif defined (_M_IX86) && defined (_MSC_VER) && _MSC_VER <= 1800 /* VS2013 */
+  return _InterlockedAnd (atomic, val);
 #else
   return InterlockedAnd (atomic, val);
 #endif
@@ -821,6 +877,8 @@ guintptr
 {
 #if GLIB_SIZEOF_VOID_P == 8
   return InterlockedOr64 (atomic, val);
+#elif defined (_M_IX86) && defined (_MSC_VER) && _MSC_VER <= 1800 /* VS2013 */
+  return _InterlockedOr (atomic, val);
 #else
   return InterlockedOr (atomic, val);
 #endif
@@ -832,6 +890,8 @@ guintptr
 {
 #if GLIB_SIZEOF_VOID_P == 8
   return InterlockedXor64 (atomic, val);
+#elif defined (_M_IX86) && defined (_MSC_VER) && _MSC_VER <= 1800 /* VS2013 */
+  return _InterlockedXor (atomic, val);
 #else
   return InterlockedXor (atomic, val);
 #endif
