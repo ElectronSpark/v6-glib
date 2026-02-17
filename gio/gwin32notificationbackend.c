@@ -119,54 +119,54 @@ G_DEFINE_TYPE_WITH_CODE (GWin32NotificationBackend, g_win32_notification_backend
 
 /* Initializes `out` with a NOTIFYICONDATA struct, to be passed to
  * Shell_NotifyIcon (NIM_ADD, ...) calls. */
-#define G_NOTIFYICONDATA_INIT(out)                            \
-  G_STMT_START                                                \
-  {                                                           \
-    *(out) = (NOTIFYICONDATA){                                \
-      .cbSize = sizeof (NOTIFYICONDATA),                      \
-      .hWnd = hwnd,                                           \
-      .uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP | NIF_SHOWTIP, \
-      .hIcon = LoadIcon (exe_module (), MAKEINTRESOURCE (1)), \
-      .uCallbackMessage = WM_APP_NOTIFYCALLBACK,              \
-      .uVersion = NOTIFYICON_VERSION_4,                       \
-    };                                                        \
-                                                              \
-    if (!(out)->hIcon)                                        \
-      {                                                       \
-        /* Fallback if the application has no icon */         \
-        (out)->hIcon = LoadIcon (NULL, IDI_APPLICATION);      \
-      }                                                       \
-                                                              \
-    /* Icon tooltip based on g_get_application_name */        \
-                                                              \
-    const gchar *_tip_utf8 = g_get_application_name ();       \
-    glong _items_written;                                     \
-    GError *_error = NULL;                                    \
-    if (_tip_utf8)                                            \
-      {                                                       \
-        WCHAR *_tip_utf16 = g_utf8_to_utf16 (_tip_utf8, -1, NULL, &_items_written, &_error); \
-        if (_error)                                           \
-          {                                                   \
-            g_critical ("Invalid UTF-8 in application name: %s", _error->message); \
-            g_error_free (_error);                            \
-          }                                                   \
-        else                                                  \
-          {                                                   \
-            g_assert (_items_written >= 0);                   \
-            if ((size_t) _items_written > MAX_TIP_COUNT)      \
-              {                                               \
-                g_warning ("Application name too long for notification tool-tip, truncating it"); \
-                _items_written = MAX_TIP_COUNT;               \
-                if (IS_LOW_SURROGATE (_tip_utf16[_items_written])) \
-                  _items_written--;                           \
-              }                                               \
-            memcpy (&(out)->szTip, _tip_utf16, _items_written * sizeof (WCHAR)); \
-            (out)->szTip[_items_written] = L'\0';             \
-            g_free (_tip_utf16);                              \
-          }                                                   \
-      }                                                       \
-  }                                                           \
-  G_STMT_END
+static void
+G_NOTIFYICONDATA_INIT (NOTIFYICONDATA *out)
+{
+  *out = (NOTIFYICONDATA){
+    .cbSize = sizeof (NOTIFYICONDATA),
+    .hWnd = hwnd,
+    .uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP | NIF_SHOWTIP,
+    .hIcon = LoadIcon (exe_module (), MAKEINTRESOURCE (1)),
+    .uCallbackMessage = WM_APP_NOTIFYCALLBACK,
+    .uVersion = NOTIFYICON_VERSION_4,
+  };
+
+  if (!out->hIcon)
+    {
+      /* Fallback if the application has no icon */
+      out->hIcon = LoadIcon (NULL, IDI_APPLICATION);
+    }
+
+  const gchar *tip_utf8 = g_get_application_name ();
+
+  glong items_written;
+  GError *error = NULL;
+
+  if (tip_utf8 && *tip_utf8)
+    {
+      WCHAR *tip_utf16 = g_utf8_to_utf16 (tip_utf8, -1, NULL, &items_written, &error);
+      if (error)
+        {
+          g_critical ("Invalid UTF-8 in application name: %s", error->message);
+          g_error_free (error);
+        }
+      else
+        {
+          g_assert (items_written >= 0);
+          if ((size_t) items_written > MAX_TIP_COUNT)
+            {
+              g_warning ("Application name too long for notification tool-tip, truncating it");
+              items_written = MAX_TIP_COUNT;
+              if (IS_LOW_SURROGATE (tip_utf16[items_written]))
+                items_written--;
+            }
+
+          memcpy (&out->szTip, tip_utf16, items_written * sizeof (WCHAR));
+          out->szTip[items_written] = L'\0';
+          g_free (tip_utf16);
+        }
+    }
+}
 
 static gboolean
 g_win32_notification_backend_is_supported (void)
@@ -417,14 +417,22 @@ dummy_WndProc (HWND _hwnd, UINT message, WPARAM wparam, LPARAM lparam)
           case NIN_SELECT:
           case NIN_KEYSELECT:
             {
-              GWeakRef *weak_ref = (GWeakRef *) GetWindowLongPtr (_hwnd, GWLP_USERDATA);
-              GApplication *app = (GApplication *) g_weak_ref_get (weak_ref);
+              GWeakRef *backend_weak = (GWeakRef *) GetWindowLongPtr (_hwnd, GWLP_USERDATA);
+              GNotificationBackend *backend = (GNotificationBackend *) g_weak_ref_get (backend_weak);
+              if (!backend)
+                break;
+
+              GApplication *app = g_notification_backend_get_application (backend);
               if (app)
                 {
-                  g_idle_add_full (G_PRIORITY_DEFAULT_IDLE,
-                                   G_SOURCE_FUNC (activate_app), app,
-                                   g_object_unref);
+                  g_main_context_invoke_full (NULL, G_PRIORITY_DEFAULT,
+                                              G_SOURCE_FUNC (activate_app), app,
+                                              g_object_unref);
                 }
+
+              g_object_unref (backend);
+
+              break;
             }
           }
         break;
@@ -468,7 +476,7 @@ dummy_WndProc (HWND _hwnd, UINT message, WPARAM wparam, LPARAM lparam)
 static gboolean
 create_window_worker (gpointer user_data)
 {
-  GWeakRef *app_weak = (GWeakRef *) user_data;
+  GWeakRef *backend_weak = (GWeakRef *) user_data;
 
   g_mutex_lock (&hwnd_mutex);
 
@@ -485,13 +493,13 @@ create_window_worker (gpointer user_data)
     {
       g_critical ("win32-notification: RegisterClass failed: %ld", GetLastError ());
       hwnd_state = HWND_STATE_FAILED;
-      g_weak_ref_clear (app_weak);
-      g_free (app_weak);
+      g_weak_ref_clear (backend_weak);
+      g_free (backend_weak);
       goto err_out;
     }
 
   hwnd = CreateWindow (MAKEINTATOM (wnd_klass), NULL, WS_POPUP,
-                       0, 0, 0, 0, NULL, NULL, this_module (), app_weak);
+                       0, 0, 0, 0, NULL, NULL, this_module (), backend_weak);
 
   if (!hwnd)
     {
@@ -499,8 +507,8 @@ create_window_worker (gpointer user_data)
       UnregisterClass (MAKEINTATOM (wnd_klass), this_module ());
       wnd_klass = 0;
       hwnd_state = HWND_STATE_FAILED;
-      g_weak_ref_clear (app_weak);
-      g_free (app_weak);
+      g_weak_ref_clear (backend_weak);
+      g_free (backend_weak);
       goto err_out;
     }
 
@@ -526,8 +534,8 @@ create_window_worker (gpointer user_data)
       UnregisterClass (MAKEINTATOM (wnd_klass), this_module ());
       wnd_klass = 0;
       hwnd_state = HWND_STATE_FAILED;
-      g_weak_ref_clear (app_weak);
-      g_free (app_weak);
+      g_weak_ref_clear (backend_weak);
+      g_free (backend_weak);
       goto err_out;
     }
   else
@@ -640,8 +648,12 @@ g_win32_message_source_ensure_running (void)
 /* }}} */
 
 static void
-g_win32_notification_backend_init (GWin32NotificationBackend *backend)
+g_win32_notification_backend_constructed (GObject *self)
 {
+  G_OBJECT_CLASS (g_win32_notification_backend_parent_class)->constructed (self);
+
+  GWin32NotificationBackend *backend = G_WIN32_NOTIFICATION_BACKEND (self);
+
   /* FIXME: Move this to centralized module */
   g_win32_message_source_ensure_running ();
 
@@ -659,13 +671,11 @@ g_win32_notification_backend_init (GWin32NotificationBackend *backend)
       hwnd_state = HWND_STATE_INITIALIZING;
       needs_inc = FALSE; /* Alredy incremented in worker */
 
-      GNotificationBackend *parent = G_NOTIFICATION_BACKEND (backend);
-
-      GWeakRef *weak_ref = g_new (GWeakRef, 1);
-      g_weak_ref_init (weak_ref, parent->application);
+      GWeakRef *backend_weak = g_new (GWeakRef, 1);
+      g_weak_ref_init (backend_weak, backend);
 
       g_main_context_invoke (GLIB_PRIVATE_CALL (g_get_worker_context) (),
-                             G_SOURCE_FUNC (create_window_worker), weak_ref);
+                             G_SOURCE_FUNC (create_window_worker), backend_weak);
     }
 
   while (hwnd_state == HWND_STATE_INITIALIZING)
@@ -683,12 +693,18 @@ g_win32_notification_backend_init (GWin32NotificationBackend *backend)
 }
 
 static void
+g_win32_notification_backend_init (GWin32NotificationBackend *backend)
+{
+}
+
+static void
 g_win32_notification_backend_class_init (GWin32NotificationBackendClass *class)
 {
   GObjectClass *object_class = G_OBJECT_CLASS (class);
   GNotificationBackendClass *backend_class = G_NOTIFICATION_BACKEND_CLASS (class);
 
   object_class->dispose = g_win32_notification_backend_dispose;
+  object_class->constructed = g_win32_notification_backend_constructed;
 
   backend_class->is_supported = g_win32_notification_backend_is_supported;
   backend_class->send_notification = g_win32_notification_backend_send_notification;
