@@ -159,6 +159,7 @@ gio_tests = {
 if host_system == 'linux'
   gio_tests += {
     'memory-monitor-psi' : {},
+    'memory-monitor-psi-env-set' :{},
   }
 endif
 
