@@ -147,10 +147,25 @@ struct  _GRealThread
 
 #endif
 
+/* Platform-specific scheduler settings for a thread */
+typedef struct
+{
+#if defined(HAVE_SYS_SCHED_GETATTR)
+  /* This is for modern Linux */
+  struct sched_attr *attr;
+#elif defined(G_OS_WIN32)
+  gint thread_prio;
+#else
+  /* TODO: Add support for macOS and the BSDs */
+  void *dummy;
+#endif
+} GThreadSchedulerSettings;
+
 void            g_system_thread_wait            (GRealThread  *thread);
 
 GRealThread *g_system_thread_new (GThreadFunc proxy,
                                   gulong stack_size,
+                                  const GThreadSchedulerSettings *scheduler_settings,
                                   const char *name,
                                   GThreadFunc func,
                                   gpointer data,
@@ -162,13 +177,18 @@ void            g_system_thread_set_name        (const gchar  *name);
 void            g_system_thread_get_name        (char         *buffer,
                                                  gsize         length);
 
+gboolean        g_system_thread_get_scheduler_settings (GThreadSchedulerSettings *scheduler_settings);
+
 /* gthread.c */
 GThread *g_thread_new_internal (const gchar *name,
                                 GThreadFunc proxy,
                                 GThreadFunc func,
                                 gpointer data,
                                 gsize stack_size,
+                                const GThreadSchedulerSettings *scheduler_settings,
                                 GError **error);
+
+gboolean g_thread_get_scheduler_settings (GThreadSchedulerSettings *scheduler_settings);
 
 gpointer        g_thread_proxy                  (gpointer      thread);
 
