@@ -35,6 +35,7 @@ static struct {
 
 static JavaVM *g_android_jvm = NULL;
 static jobject g_android_class_loader = NULL;
+static jobject g_android_context = NULL;
 
 static struct
 {
@@ -43,6 +44,11 @@ static struct
     jclass klass;
     jmethodID load_class;
   } j_classloader;
+  struct
+  {
+    jclass klass;
+    jmethodID get_application_context;
+  } a_context;
 } g_android_cache;
 
 static __thread JNIEnv *g_android_jvm_thread = NULL;
@@ -61,6 +67,7 @@ g_android_jvm_thread_cleanup (G_GNUC_UNUSED void *env)
  * glib_android_initialize:
  * @vm: the active JVM
  * @class_loader: (nullable): the classloader to use
+ * @context: (nullable): The Android Context object used to interface with the OS
  *
  * Initialize the Android application handling routines of GLib.
  *
@@ -81,7 +88,8 @@ g_android_jvm_thread_cleanup (G_GNUC_UNUSED void *env)
  */
 gboolean
 glib_android_initialize (JavaVM *vm,
-                         jobject class_loader)
+                         jobject class_loader,
+                         jobject context)
 {
   // fast-path after initialization
   if (g_atomic_int_get (&g_android_init.initialized))
@@ -98,9 +106,7 @@ glib_android_initialize (JavaVM *vm,
   g_android_jvm = vm;
   pthread_key_create (&g_android_jvm_thread_cleanup_key, g_android_jvm_thread_cleanup);
 
-  GAndroidJvmScope env = g_android_enter_jvm_scope (2);
-  g_android_class_loader = class_loader ?
-      (*env)->NewGlobalRef (env, class_loader) : NULL;
+  GAndroidJvmScope env = g_android_enter_jvm_scope (3);
 
   jclass classloader_class = (*env)->FindClass (env, "java/lang/ClassLoader");
   g_android_cache.j_classloader.klass = (*env)->NewGlobalRef (env, classloader_class);
@@ -108,6 +114,36 @@ glib_android_initialize (JavaVM *vm,
                                                                   g_android_cache.j_classloader.klass,
                                                                   "loadClass",
                                                                   "(Ljava/lang/String;)Ljava/lang/Class;");
+
+  jclass context_class = (*env)->FindClass (env, "android/content/Context");
+  g_android_cache.a_context.klass = (*env)->NewGlobalRef (env, context_class);
+  g_android_cache.a_context.get_application_context = (*env)->GetMethodID (env,
+                                                                           g_android_cache.a_context.klass,
+                                                                           "getApplicationContext",
+                                                                           "()Landroid/content/Context;");
+
+  g_android_class_loader = NULL;
+  if (class_loader)
+    {
+      if ((*env)->IsInstanceOf (env, class_loader, classloader_class))
+        g_android_class_loader = (*env)->NewGlobalRef (env, class_loader);
+      else
+        g_critical ("ClassLoader passed to glib_android_initialize is not a valid class loader");
+    }
+
+  g_android_context = NULL;
+  if (context)
+    {
+      if ((*env)->IsInstanceOf (env, context, context_class))
+        {
+          jobject *appl_context = (*env)->CallObjectMethod (env,
+                                                            context,
+                                                            g_android_cache.a_context.get_application_context);
+          g_android_context = (*env)->NewGlobalRef (env, appl_context);
+        }
+      else
+        g_critical ("Context passed to glib_android_initialize is not a valid context");
+    }
 
   g_android_leave_jvm_scope (&env);
   g_atomic_int_set (&g_android_init.initialized, TRUE);
@@ -232,6 +268,27 @@ g_android_find_class (const gchar *klass)
     }
 
   return g_android_leave_jvm_scope_with_ref (&env, java_class);
+}
+
+/**
+ * g_android_get_context:
+ *
+ * Get the reference to to the android.content.Context object set in
+ * [func@GLib.android_initialize].
+ *
+ *
+ * The
+ * [Context](https://developer.android.com/reference/android/content/Context)
+ * object is the central interface to interact with the Android
+ * operating system.
+ *
+ * Returns: (nullable): the context object
+ * Since: 2.88
+ */
+jobject
+g_android_get_context (void)
+{
+  return g_android_context;
 }
 
 /**

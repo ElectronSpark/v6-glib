@@ -29,7 +29,7 @@
 G_BEGIN_DECLS
 
 GLIB_AVAILABLE_IN_2_88
-gboolean glib_android_initialize     (JavaVM *vm, jobject class_loader);
+gboolean glib_android_initialize     (JavaVM *vm, jobject class_loader, jobject context);
 
 GLIB_AVAILABLE_IN_2_88
 gboolean glib_android_is_initialized (void);
@@ -42,6 +42,9 @@ jobject g_android_get_class_loader   (void);
 
 GLIB_AVAILABLE_IN_2_88
 jclass g_android_find_class          (const gchar *klass);
+
+GLIB_AVAILABLE_IN_2_88
+jobject g_android_get_context        (void);
 
 
 typedef JNIEnv *GAndroidJvmScope;
