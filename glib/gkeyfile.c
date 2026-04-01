@@ -57,6 +57,8 @@
 #define O_CLOEXEC 0
 #endif
 
+#define RUNDIR "/run"
+
 #include "gconvert.h"
 #include "gdataset.h"
 #include "gerror.h"
@@ -907,7 +909,7 @@ g_key_file_load_from_fd (GKeyFile       *key_file,
  * This function will never return a [error@GLib.KeyFileError.NOT_FOUND]
  * error. If the @file is not found, [error@GLib.FileError.NOENT] is returned.
  *
- * Returns: true if a key file could be loaded, false otherwise
+ * Returns: true if a key file could be loaded; false otherwise
  *
  * Since: 2.6
  **/
@@ -959,7 +961,7 @@ g_key_file_load_from_file (GKeyFile       *key_file,
  *
  * If the object cannot be created then a [error@GLib.KeyFileError is returned.
  *
- * Returns: true if a key file could be loaded, false otherwise
+ * Returns: true if a key file could be loaded; false otherwise
  *
  * Since: 2.6
  **/
@@ -1005,6 +1007,389 @@ g_key_file_load_from_data (GKeyFile       *key_file,
 }
 
 /**
+ * g_key_file_load_unix_configurations:
+ * @key_file: an empty [struct@GLib.KeyFile] struct
+ * @project: (nullable): name of the project used as subdirectory
+ * @etc_subdir: (nullable): absolute directory path for user changed configuration files (default "/etc")
+ * @usr_subdir: (nullable): absolute directory path of vendor defined settings (default "/usr/share")
+ * @config_name: basename of the configuration file
+ * @config_suffix (nullable): suffix of the configuration file
+ * @flags: flags from [flags@GLib.KeyFileFlags]
+ * @error: return location for a [struct@GLib.Error]
+ *
+ * Evaluating key/values of a given configuration by reading and merging all needed/available files
+ * from different directories. The rules are defined by:
+ * https://github.com/uapi-group/specifications/blob/main/specs/configuration_files_specification.md
+ * The rules are currently defined by version 1 of the specification, but may be changed to follow newer
+ * versions in the future.
+ *
+ * If no file for parsing has been found, [error@GLib.KeyFileError.NOT_FOUND] is returned.
+ * If files have been found but the OS returns an error when opening or reading a
+ * file, a [error@GLib.FileError] is returned. If there is a problem parsing
+ * files, a [error@GLib.KeyFileError] is returned.
+ *
+ * Returns: true if values could be loaded without an error; false otherwise
+ *
+ * Since: 2.86
+ *
+ **/
+
+gboolean
+g_key_file_load_unix_configurations (GKeyFile       *key_file,
+                                     const gchar    *project,
+                                     const gchar    *etc_subdir,
+                                     const gchar    *usr_subdir,
+                                     const gchar    *config_name,
+                                     const gchar    *config_suffix,
+                                     GKeyFileFlags  flags,
+                                     GError         **error)
+{
+  gchar *path = NULL;
+  gchar *scan_dir = NULL;
+  int fd = 0;
+  GDir *dir;
+  gchar *filename = NULL;
+  gchar *suffix = NULL;
+  const gchar *file = NULL;
+  gboolean ret = TRUE;
+  GError *key_file_error = NULL;
+  GPtrArray *parsing_list = NULL;
+  guint index_parsing_list = 0;
+  GPtrArray *etc_list = NULL;
+  guint index_etc_list = 0;
+  GPtrArray *usr_list = NULL;
+  guint index_usr_list = 0;
+  GPtrArray *run_list = NULL;
+  guint index_run_list = 0;
+  GKeyFile *parsed_key_file = NULL;
+  gchar** groups = NULL;
+  gchar** groups_ptr = NULL;
+  gchar** keys = NULL;
+  gchar** keys_ptr = NULL;
+  gchar*  value = NULL;
+
+  g_return_val_if_fail (key_file != NULL, FALSE);
+  g_return_val_if_fail (config_name != NULL, FALSE);
+
+  parsing_list = g_ptr_array_new_with_free_func (g_free);
+  etc_list = g_ptr_array_new_with_free_func (g_free);
+  usr_list = g_ptr_array_new_with_free_func (g_free);
+  run_list = g_ptr_array_new_with_free_func (g_free);
+  parsed_key_file = g_key_file_new();
+
+  /* Default is /etc */
+  if (!etc_subdir)
+    etc_subdir = "/etc";
+
+  if (!usr_subdir)
+    usr_subdir = "/usr/share";
+
+  if (config_suffix)
+    filename = g_strconcat (config_name, ".", config_suffix, NULL);
+  else
+    filename = g_strdup (config_name);
+
+  if (!project)
+    project = "";
+
+  /* Evaluating first "main" file which has to be parsed */
+  path = g_build_filename (etc_subdir, project, filename, NULL);
+  fd = g_open (path, O_RDONLY | O_CLOEXEC, 0);
+  if (fd == -1)
+    {
+      g_free (path);
+      path = g_build_filename (RUNDIR, project, filename, NULL);
+      fd = g_open (path, O_RDONLY | O_CLOEXEC, 0);
+    }
+  if (fd == -1)
+    {
+      g_free (path);
+      path = g_build_filename (usr_subdir, project, filename, NULL);
+      fd = g_open (path, O_RDONLY | O_CLOEXEC, 0);
+    }
+  if (fd != -1)
+    {
+      g_ptr_array_add (parsing_list, g_steal_pointer (&path));
+      close (fd);
+    }
+
+  g_clear_pointer (&path, g_free);
+
+  /* Evaluating all plugin files which have to be parsed and insert them into
+     the list in the correct order */
+  g_free (filename);
+  if (config_suffix)
+    {
+      filename = g_strconcat (config_name, ".", config_suffix, ".d", NULL);
+      suffix = g_strconcat (".", config_suffix, NULL);
+    }
+  else
+    filename = g_strconcat (config_name, ".d", NULL);
+  /* scanning /usr */
+  scan_dir = g_build_filename (usr_subdir, project, filename, NULL);
+  dir = g_dir_open (scan_dir, 0, &key_file_error);
+  if (dir)
+    {
+      while ((file = g_dir_read_name(dir)) != NULL)
+        {
+          if (!suffix || g_str_has_suffix (file, suffix))
+            g_ptr_array_add (usr_list, g_strdup (file));
+        }
+      g_clear_pointer (&dir, g_dir_close);
+    }
+  g_clear_error (&key_file_error);
+  g_free (scan_dir);
+  /* scanning /run */
+  scan_dir = g_build_filename (RUNDIR, project, filename, NULL);
+  dir = g_dir_open (scan_dir, 0, &key_file_error);
+  if (dir)
+    {
+      while ((file = g_dir_read_name (dir)) != NULL)
+        if (!suffix || g_str_has_suffix (file, suffix))
+          g_ptr_array_add (run_list, g_strdup (file));
+      g_clear_pointer (&dir, g_dir_close);
+    }
+  g_clear_error (&key_file_error);
+  g_free (scan_dir);
+  /* scanning /etc */
+  scan_dir = g_build_filename (etc_subdir, project, filename, NULL);
+  dir = g_dir_open (scan_dir, 0, &key_file_error);
+  if (dir)
+    {
+      while ((file = g_dir_read_name (dir)) != NULL)
+        if (!suffix || g_str_has_suffix (file, suffix))
+          g_ptr_array_add (etc_list, g_strdup (file));
+      g_clear_pointer (&dir, g_dir_close);
+    }
+  g_clear_error (&key_file_error);
+  g_free (scan_dir);
+  g_free (suffix);
+
+  g_ptr_array_sort_values (usr_list, (GCompareFunc) g_strcmp0);
+  g_ptr_array_sort_values (run_list, (GCompareFunc) g_strcmp0);
+  g_ptr_array_sort_values (etc_list, (GCompareFunc) g_strcmp0);
+
+  // Pointers (indices) to track the current position in each input list
+  index_etc_list = 0;
+  index_run_list = 0;
+  index_usr_list = 0;
+  index_parsing_list = 0;
+
+  // Loop until all elements from all three lists have been considered
+  while (index_etc_list < etc_list->len || index_run_list < run_list->len || index_usr_list < usr_list->len)
+    {
+      // Pointers to the current smallest string from each list,
+      // or empty string if the list is exhausted
+      const gchar *current_etc = (index_etc_list < etc_list->len) ?
+        (gchar *) g_ptr_array_index (etc_list, index_etc_list) : "";
+      const gchar *current_run = (index_run_list < run_list->len) ?
+        (gchar *) g_ptr_array_index (run_list, index_run_list) : "";
+      const gchar *current_usr = (index_usr_list < usr_list->len) ?
+        (gchar *) g_ptr_array_index (usr_list, index_usr_list) : "";
+
+      // --- Find the current overall smallest string (alphabetically) ---
+
+      // Start with the 'etc' entry as the smallest candidate
+      const gchar *smallest = current_etc;
+      int list_priority = 1; // 1:etc, 2:run, 3:usr
+
+      // Compare with 'run' entry
+      if (strlen(current_run) > 0)
+        {
+          if (strlen(smallest) == 0 || g_strcmp0 (current_run, smallest) < 0)
+            {
+              smallest = current_run;
+              list_priority = 2;
+            }
+          else if (g_strcmp0 (current_run, smallest) == 0)
+            {
+              // If equal, skip current_run due to 'etc' priority (priority 1)
+              // We advance the run pointer but keep 'smallest' as current_etc
+              // The current etc entry will be added to the merged list later
+              index_run_list++;
+              current_run = (index_run_list < run_list->len) ?
+                g_ptr_array_index (run_list, index_run_list) : "";
+              // Re-evaluate smallest to check if the new current_run is the smallest overall
+              continue; // Restart the loop to re-evaluate the minimum after advancing j
+            }
+        }
+
+      // Compare with 'usr' entry
+      if (strlen(current_usr) > 0)
+        {
+          if (strlen(smallest) == 0 || g_strcmp0 (current_usr, smallest) < 0)
+            {
+              smallest = current_usr;
+              list_priority = 3;
+            }
+          else if (g_strcmp0 (current_usr, smallest) == 0)
+            {
+              // If equal, skip current_usr due to 'etc' (priority 1) or 'run' (priority 2)
+              // We advance the usr pointer but keep 'smallest'
+              index_usr_list++;
+              current_usr = (index_usr_list < usr_list->len) ?
+                g_ptr_array_index (usr_list, index_usr_list) : "";
+              // Re-evaluate smallest to check if the new current_usr is the smallest overall
+              continue; // Restart the loop to re-evaluate the minimum after advancing k
+            }
+        }
+
+      // At this point, 'smallest' holds the alphabetically smallest string
+      // that hasn't been added yet, giving priority to etc, then run.
+
+      // If 'smallest' is "", all lists are exhausted
+      if (strlen(smallest) == 0)
+        {
+          break;
+        }
+
+      // --- Add 'smallest' to the merged list ---
+
+      // Check for deduplication against the *last* element added to the merged list
+      // This handles cases like a = b = c, where b and c are skipped.
+      // Or a < b < c, but the previous element was the same as 'smallest'
+      if (index_parsing_list > 0 &&
+          g_strcmp0 (smallest, g_ptr_array_index (parsing_list,index_parsing_list - 1)) == 0)
+        {
+            // Already added in the previous iteration, just advance the appropriate pointer(s)
+            // This case should primarily handle a=b=c, where the 'a' was added,
+            // and the 'b' and 'c' pointers were advanced during the comparison step.
+        }
+      else
+        {
+          // Found a new, smallest, unique element.
+          switch (list_priority)
+            {
+            case 1:
+              g_ptr_array_add (parsing_list,
+                               g_build_filename (etc_subdir, project, filename, smallest, NULL));
+              break;
+            case 2:
+              g_ptr_array_add (parsing_list,
+                               g_build_filename (RUNDIR, project, filename, smallest, NULL));
+              break;
+            case 3:
+              g_ptr_array_add (parsing_list,
+                               g_build_filename (usr_subdir, project, filename, smallest, NULL));
+              break;
+            default:
+            }
+          index_parsing_list++;
+        }
+
+        // --- Advance the pointer(s) for the element(s) just processed ---
+        // This must be done for ALL pointers that point to the string 'smallest'
+        // to correctly handle deduplication (e.g., 'a' in etc, 'a' in run, 'b' in usr)
+
+        // Advance 'etc' pointer if etc_list[index_etc_list] is equal to the 'smallest' string
+        if (index_etc_list < etc_list->len && strcmp(g_ptr_array_index (etc_list, index_etc_list), smallest) == 0)
+          {
+            index_etc_list++;
+          }
+
+        // Advance 'run' pointer if run_list[index_run_list] is equal to the 'smallest' string
+        // We only advance 'index_run_list' if it wasn't already advanced inside the while loop's comparison logic
+        if (index_run_list < run_list->len && strcmp(g_ptr_array_index (run_list, index_run_list), smallest) == 0)
+          {
+            index_run_list++;
+          }
+
+        // Advance 'usr' pointer if usr_list[index_var_list] is equal to the 'smallest' string
+        // We only advance 'index_usr_list' if it wasn't already advanced inside the while loop's comparison logic
+        if (index_usr_list < usr_list->len && strcmp(g_ptr_array_index (usr_list, index_usr_list), smallest) == 0)
+          {
+            index_usr_list++;
+          }
+    }
+
+  g_free (filename);
+
+  /* Parsing all configuration files in the correct order and merging the entries.*/
+  for (index_parsing_list = 0; index_parsing_list < parsing_list->len; index_parsing_list++)
+    {
+      fd = g_open ((gchar *) g_ptr_array_index (parsing_list, index_parsing_list), O_RDONLY | O_CLOEXEC, 0);
+      if (fd != -1)
+        {
+          if (g_key_file_load_from_fd (parsed_key_file, fd, flags, &key_file_error))
+            {
+              if (key_file_error)
+                {
+                  g_propagate_error (error, key_file_error);
+                  ret = FALSE;
+                  g_clear_error (&key_file_error);
+                }
+
+              groups = g_key_file_get_groups (parsed_key_file, NULL);
+              groups_ptr = groups;
+              while (*groups_ptr)
+                {
+                  keys_ptr = g_key_file_get_keys (parsed_key_file,
+                                                  *groups_ptr,
+                                                  NULL,
+                                                  &key_file_error);
+                  if (key_file_error)
+                    {
+                      g_propagate_error (error, key_file_error);
+                      ret = FALSE;
+                      g_clear_error (&key_file_error);
+                    }
+                  while (*keys_ptr)
+                    {
+                      value = g_key_file_get_value (parsed_key_file,
+                                                    *groups_ptr,
+                                                    *keys_ptr,
+                                                    &key_file_error);
+                      if (key_file_error)
+                        {
+                          g_propagate_error (error, key_file_error);
+                          ret = FALSE;
+                          g_clear_error (&key_file_error);
+                        }
+                      else
+                        {
+                          g_key_file_set_value (key_file,
+                                                *groups_ptr,
+                                                *keys_ptr,
+                                                value);
+                          if (key_file_error)
+                            {
+                              g_propagate_error (error, key_file_error);
+                              ret = FALSE;
+                              g_clear_error (&key_file_error);
+                            }
+                        }
+                      keys_ptr++;
+                    }
+                  g_strfreev (keys);
+                  groups_ptr++;
+                }
+              g_strfreev (groups);
+              g_key_file_free (parsed_key_file);
+              parsed_key_file = g_key_file_new ();
+            }
+          close (fd);
+        }
+    }
+
+  if (parsing_list->len <= 0)
+    {
+      g_set_error_literal (error, G_KEY_FILE_ERROR,
+                           G_KEY_FILE_ERROR_NOT_FOUND,
+                           _("Valid key file could not be "
+                             "found in search dirs"));
+      ret = FALSE;
+    }
+
+  g_key_file_free (parsed_key_file);
+  g_ptr_array_free (usr_list, TRUE);
+  g_ptr_array_free (etc_list, TRUE);
+  g_ptr_array_free (parsing_list, TRUE);
+
+  return ret;
+}
+
+
+/**
  * g_key_file_load_from_bytes:
  * @key_file: an empty [struct@GLib.KeyFile] struct
  * @bytes: a [struct@GLib.Bytes]
@@ -1016,7 +1401,7 @@ g_key_file_load_from_data (GKeyFile       *key_file,
  *
  * If the object cannot be created then a [error@GLib.KeyFileError] is returned.
  *
- * Returns: true if a key file could be loaded, false otherwise
+ * Returns: true if a key file could be loaded; false otherwise
  *
  * Since: 2.50
  **/
@@ -1063,7 +1448,7 @@ g_key_file_load_from_bytes (GKeyFile       *key_file,
  * file, a [error@GLib.FileError] is returned. If there is a problem parsing the
  * file, a [error@GLib.KeyFileError] is returned.
  *
- * Returns: true if a key file could be loaded, false otherwise
+ * Returns: true if a key file could be loaded; false otherwise
  *
  * Since: 2.14
  **/
@@ -1141,7 +1526,7 @@ g_key_file_load_from_dirs (GKeyFile       *key_file,
  * If the file could not be loaded then either a [error@GLib.FileError] or
  * [error@GLib.KeyFileError] is returned.
  *
- * Returns: true if a key file could be loaded, false otherwise
+ * Returns: true if a key file could be loaded; false otherwise
  * Since: 2.6
  **/
 gboolean
@@ -3505,7 +3890,7 @@ g_key_file_set_group_comment (GKeyFile     *key_file,
  * Note that this function prepends a `#` comment marker to
  * each line of @comment.
  *
- * Returns: true if the comment was written, false otherwise
+ * Returns: true if the comment was written; false otherwise
  *
  * Since: 2.6
  **/
@@ -3765,7 +4150,7 @@ g_key_file_get_comment (GKeyFile     *key_file,
  * If both @key and @group_name are `NULL`, then @comment will
  * be removed above the first group in the file.
  *
- * Returns: true if the comment was removed, false otherwise
+ * Returns: true if the comment was removed; false otherwise
  *
  * Since: 2.6
  **/
@@ -3793,7 +4178,7 @@ g_key_file_remove_comment (GKeyFile     *key_file,
  *
  * Looks whether the key file has the group @group_name.
  *
- * Returns: true if @group_name is a part of @key_file, false otherwise.
+ * Returns: true if @group_name is a part of @key_file; false otherwise.
  * Since: 2.6
  **/
 gboolean
@@ -3861,7 +4246,7 @@ g_key_file_has_key_full (GKeyFile     *key_file,
  * Language bindings should use [method@GLib.KeyFile.get_value] to test whether
  * a key exists.
  *
- * Returns: true if @key is a part of @group_name, false otherwise
+ * Returns: true if @key is a part of @group_name; false otherwise
  *
  * Since: 2.6
  **/
@@ -4059,7 +4444,7 @@ g_key_file_remove_group_node (GKeyFile *key_file,
  * Removes the specified group, @group_name, 
  * from the key file. 
  *
- * Returns: true if the group was removed, false otherwise
+ * Returns: true if the group was removed; false otherwise
  *
  * Since: 2.6
  **/
@@ -4129,7 +4514,7 @@ g_key_file_add_key (GKeyFile      *key_file,
  *
  * Removes @key in @group_name from the key file. 
  *
- * Returns: true if the key was removed, false otherwise
+ * Returns: true if the key was removed; false otherwise
  *
  * Since: 2.6
  **/
@@ -4757,7 +5142,7 @@ g_key_file_parse_comment_as_value (GKeyFile      *key_file,
  * This function can fail for any of the reasons that
  * [func@GLib.file_set_contents] may fail.
  *
- * Returns: true if successful, false otherwise
+ * Returns: true if successful; false otherwise
  *
  * Since: 2.40
  */

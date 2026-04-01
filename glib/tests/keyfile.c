@@ -1556,6 +1556,113 @@ copy_file (const char *source,
 
   g_free (file_contents);
 }
+
+static void
+test_load_unix_conf (void)
+{
+  GKeyFile *keyfile = g_key_file_new ();
+  GError *error = NULL;
+  gboolean loaded;  
+
+  /* Drop-ins
+    https://github.com/uapi-group/specifications/blob/main/specs/configuration_files_specification.md#drop-ins
+    Reading configuration file in following order:
+    unix_conf/etc/foo/bar.conf
+    unix_conf/etc/foo/bar.conf.d/1.conf
+    unix_conf/etc/foo/bar.conf.d/2.conf
+    unix_conf/usr/lib/foo/bar.conf.d/3.conf
+
+    do not read
+    unix_conf/etc/foo/bar.conf.d/4.other_suffix
+   */
+  loaded = g_key_file_load_unix_configurations (keyfile,
+                                                "foo",
+                                                g_test_get_filename (G_TEST_DIST, "unix_conf", "etc", NULL),
+                                                g_test_get_filename (G_TEST_DIST, "unix_conf", "usr", "lib", NULL),
+                                                "bar",
+                                                "conf",
+                                                0,
+                                                &error);
+  g_assert_no_error (error);
+  g_assert_true (loaded);
+  check_string_value (keyfile, "test", "key1", "usr_lib_foo_bar.conf.d_3.conf:key1");
+  check_string_value (keyfile, "test", "key2", "usr_lib_foo_bar.conf.d_3.conf:key2");;
+  check_string_value (keyfile, "test", "key3", "usr_lib_foo_bar.conf.d_3.conf:key3");
+  check_string_value (keyfile, "test", "key4", "usr_lib_foo_bar.conf.d_3.conf:key4");    
+  check_string_value (keyfile, "test", "key5", "etc_foo_bar.conf:key5");
+  check_string_value (keyfile, "test2", "key6", "etc_foo_bar.conf.d_1.conf:key6");
+  g_key_file_free (keyfile);
+
+  /* Reading unix_conf/usr/lib/bar.conf which has no <project> directory */
+  keyfile = g_key_file_new ();
+  loaded = g_key_file_load_unix_configurations (keyfile,
+                                                NULL,
+                                                g_test_get_filename (G_TEST_DIST, "unix_conf", "etc", NULL),
+                                                g_test_get_filename (G_TEST_DIST, "unix_conf", "usr", "lib", NULL),
+                                                "bar",
+                                                "conf",
+                                                0,
+                                                &error);
+  g_assert_no_error (error);
+  g_assert_true (loaded);
+  check_string_value (keyfile, "test", "key1", "usr_lib_bar.conf:key1");
+  check_string_value (keyfile, "test", "key2", "usr_lib_bar.conf:key2");
+  check_string_value (keyfile, "test", "key3", "usr_lib_bar.conf:key3");
+  g_key_file_free (keyfile);
+
+  /* Reading unix_conf/etc/bar2.conf only although unix_conf/usr/lib/bar2.conf is available. */
+  keyfile = g_key_file_new ();
+  loaded = g_key_file_load_unix_configurations (keyfile,
+                                                NULL,
+                                                g_test_get_filename (G_TEST_DIST, "unix_conf", "etc", NULL),
+                                                g_test_get_filename (G_TEST_DIST, "unix_conf", "usr", "lib", NULL),
+                                                "bar2",
+                                                "conf",
+                                                0,
+                                                &error);
+  g_assert_no_error (error);
+  g_assert_true (loaded);
+  check_string_value (keyfile, "test", "key1", "etc_bar2.conf:key1");
+  check_string_value (keyfile, "test", "key2", "etc_bar2.conf:key2");
+  check_string_value (keyfile, "test", "key3", "etc_bar2.conf:key3");
+  g_key_file_free (keyfile);
+
+  /* Drop-ins without Main Configuration File
+  https://github.com/uapi-group/specifications/blob/main/specs/configuration_files_specification.md#drop-ins-without-main-configuration-file
+  Reading configuration file in following order:
+  unix_conf/etc/drop_in.d/a.conf
+  unix_conf/usr/lib/drop_in.d/b.conf
+  */
+  keyfile = g_key_file_new ();
+  loaded = g_key_file_load_unix_configurations (keyfile,
+                                                NULL,
+                                                g_test_get_filename (G_TEST_DIST, "unix_conf", "etc", NULL),
+                                                g_test_get_filename (G_TEST_DIST, "unix_conf", "usr", "lib", NULL),
+                                                "drop_in",
+                                                NULL,
+                                                0,
+                                                &error);
+  g_assert_true (loaded);
+  g_assert_no_error (error);
+  check_string_value (keyfile, "test", "key1", "etc_drop_in.d_a.conf:key1");
+  check_string_value (keyfile, "test", "key2", "usr_lib_drop_in.d_b.conf:key2");
+  check_string_value (keyfile, "test", "key3", "usr_lib_drop_in.d_b.conf:key3");
+  g_key_file_free (keyfile);  
+
+  /* Do not find any configuration file */
+  keyfile = g_key_file_new ();
+  loaded = g_key_file_load_unix_configurations (keyfile,
+                                                NULL,
+                                                NULL,
+                                                g_test_get_filename (G_TEST_DIST, "unix_conf", "usr", "lib", NULL),
+                                                "not_found",
+                                                "conf",
+                                                0,
+                                                &error);
+  g_assert_error (error, G_KEY_FILE_ERROR, G_KEY_FILE_ERROR_NOT_FOUND);
+  g_assert_false (loaded);
+  g_key_file_free (keyfile);
+}
 #endif  /* G_OS_UNIX */
 
 static void
@@ -2024,6 +2131,9 @@ main (int argc, char *argv[])
   g_test_add_func ("/keyfile/reload", test_reload_idempotency);
   g_test_add_func ("/keyfile/int64", test_int64);
   g_test_add_func ("/keyfile/load", test_load);
+#ifdef G_OS_UNIX  
+  g_test_add_func ("/keyfile/load_unix_conf", test_load_unix_conf);
+#endif  
   g_test_add_func ("/keyfile/save", test_save);
   g_test_add_func ("/keyfile/load-fail", test_load_fail);
   g_test_add_func ("/keyfile/non-utf8", test_non_utf8);
