@@ -67,7 +67,7 @@ test_trash_macos_native (void)
   g_autofree gchar *filepath = NULL;
   g_autofree gchar *basename = NULL;
   g_autofree gchar *legacy_trash_path = NULL;
-  g_autoptr(GFile) file = NULL;
+  g_autoptr (GFile) file = NULL;
   GError *error = NULL;
 
   filepath = create_home_tmp_file ("test-trash-macos-XXXXXX");

@@ -22,9 +22,9 @@
 
 #include "glocalfile.h"
 
+#include <Foundation/Foundation.h>
 #include <gio/gcancellable.h>
 #include <gio/gioerror.h>
-#include <Foundation/Foundation.h>
 
 static GIOErrorEnum
 ns_error_to_gio_error (NSError *error)
@@ -48,9 +48,9 @@ ns_error_to_gio_error (NSError *error)
 }
 
 gboolean
-_g_local_file_trash_macos (const char    *path,
-                           GCancellable  *cancellable,
-                           GError       **error)
+_g_local_file_trash_macos (const char *path,
+                           GCancellable *cancellable,
+                           GError **error)
 {
   g_return_val_if_fail (path != NULL, FALSE);
 
@@ -58,26 +58,26 @@ _g_local_file_trash_macos (const char    *path,
     return FALSE;
 
   @autoreleasepool
-    {
-      NSURL *url;
-      NSError *ns_error = nil;
-      NSFileManager *file_manager;
+  {
+    NSURL *url;
+    NSError *ns_error = nil;
+    NSFileManager *file_manager;
 
-      url = [NSURL fileURLWithPath:@(path)];
-      file_manager = [NSFileManager defaultManager];
+    url = [NSURL fileURLWithPath:@(path)];
+    file_manager = [NSFileManager defaultManager];
 
-      if (![file_manager trashItemAtURL:url resultingItemURL:NULL error:&ns_error])
-        {
-          if (g_cancellable_set_error_if_cancelled (cancellable, error))
-            return FALSE;
-
-          g_set_error_literal (error,
-                               G_IO_ERROR,
-                               ns_error_to_gio_error (ns_error),
-                               ns_error.localizedDescription.UTF8String);
+    if (![file_manager trashItemAtURL:url resultingItemURL:NULL error:&ns_error])
+      {
+        if (g_cancellable_set_error_if_cancelled (cancellable, error))
           return FALSE;
-        }
-    }
+
+        g_set_error_literal (error,
+                             G_IO_ERROR,
+                             ns_error_to_gio_error (ns_error),
+                             ns_error.localizedDescription.UTF8String);
+        return FALSE;
+      }
+  }
 
   return TRUE;
 }
