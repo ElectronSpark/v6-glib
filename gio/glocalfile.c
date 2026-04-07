@@ -2100,6 +2100,9 @@ g_local_file_trash (GFile         *file,
 		    GError       **error)
 {
   GLocalFile *local = G_LOCAL_FILE (file);
+#ifdef HAVE_COCOA
+  return _g_local_file_trash_macos (local->filename, cancellable, error);
+#else
   GStatBuf file_stat, home_stat;
   dev_t checked_st_dev;
   const char *homedir;
@@ -2540,6 +2543,7 @@ g_local_file_trash (GFile         *file,
   g_free (trashname);
   
   return TRUE;
+#endif
 }
 #else /* G_OS_WIN32 */
 gboolean
