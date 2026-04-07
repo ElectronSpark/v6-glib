@@ -27,15 +27,15 @@
 #include "gio-tool.h"
 
 #ifdef HAVE_COCOA
-#define TRASH_SUMMARY N_ ("Move files or directories to the trash.")
-#define EMPTY_DESCRIPTION N_ ("Empty the trash (not supported on macOS)")
-#define LIST_DESCRIPTION N_ ("List files in the trash with their original locations (not supported on macOS)")
-#define RESTORE_DESCRIPTION N_ ("Restore a file from trash to its original location (not supported on macOS)")
+#define TRASH_SUMMARY N_("Move files or directories to the trash.")
+#define EMPTY_DESCRIPTION N_("Empty the trash (not supported on macOS)")
+#define LIST_DESCRIPTION N_("List files in the trash with their original locations (not supported on macOS)")
+#define RESTORE_DESCRIPTION N_("Restore a file from trash to its original location (not supported on macOS)")
 #else
-#define TRASH_SUMMARY N_ ("Move/Restore files or directories to the trash.")
-#define EMPTY_DESCRIPTION N_ ("Empty the trash")
-#define LIST_DESCRIPTION N_ ("List files in the trash with their original locations")
-#define RESTORE_DESCRIPTION N_ ("Restore a file from trash to its original location (possibly recreating the directory)")
+#define TRASH_SUMMARY N_("Move/Restore files or directories to the trash.")
+#define EMPTY_DESCRIPTION N_("Empty the trash")
+#define LIST_DESCRIPTION N_("List files in the trash with their original locations")
+#define RESTORE_DESCRIPTION N_("Restore a file from trash to its original location (possibly recreating the directory)")
 #endif
 
 static gboolean global_force = FALSE;
@@ -43,7 +43,7 @@ static gboolean empty = FALSE;
 static gboolean restore = FALSE;
 static gboolean list = FALSE;
 static const GOptionEntry entries[] = {
-  { "force", 'f', 0, G_OPTION_ARG_NONE, &global_force, N_ ("Ignore nonexistent files, never prompt"), NULL },
+  { "force", 'f', 0, G_OPTION_ARG_NONE, &global_force, N_("Ignore nonexistent files, never prompt"), NULL },
   { "empty", 0, 0, G_OPTION_ARG_NONE, &empty, EMPTY_DESCRIPTION, NULL },
   { "list", 0, 0, G_OPTION_ARG_NONE, &list, LIST_DESCRIPTION, NULL },
   { "restore", 0, 0, G_OPTION_ARG_NONE, &restore, RESTORE_DESCRIPTION, NULL },
@@ -57,11 +57,11 @@ ensure_supported_on_macos (GOptionContext *context,
 {
   if (restore || list || empty)
     {
-      show_help (context, _ ("The options --restore, --list, and --empty are not supported on macOS"));
+      show_help (context, _("The options --restore, --list, and --empty are not supported on macOS"));
       g_set_error_literal (error,
                            G_IO_ERROR,
                            G_IO_ERROR_NOT_SUPPORTED,
-                           _ ("The options --restore, --list, and --empty are not supported on macOS"));
+                           _("The options --restore, --list, and --empty are not supported on macOS"));
       return FALSE;
     }
 
@@ -293,7 +293,7 @@ handle_trash (int argc, char *argv[], gboolean do_help)
   g_free (param);
   g_option_context_set_help_enabled (context, FALSE);
   g_option_context_set_summary (context,
-                                _ (TRASH_SUMMARY));
+      _(TRASH_SUMMARY));
 #ifndef HAVE_COCOA
   g_option_context_set_description (context,
       _("Note: for --restore switch, if the original location of the trashed file \n"
