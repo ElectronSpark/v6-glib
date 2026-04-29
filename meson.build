@@ -345,6 +345,8 @@ if glib_build_static_only
   glibconfig_conf.set('FFI_STATIC_BUILD', '1')
 endif
 
+build_android_platform = false
+
 # Cygwin glib port maintainers made it clear
 # (via the patches they apply) that they want no
 # part of glib W32 code, therefore we do not define
@@ -357,6 +359,10 @@ if host_system == 'windows'
 elif host_system == 'cygwin'
   glib_os = '''#define G_OS_UNIX
 #define G_WITH_CYGWIN'''
+elif get_option('android').require(host_system == 'android').allowed()
+  glib_os = '''#define G_OS_UNIX
+#define G_PLATFORM_ANDROID'''
+  build_android_platform = true
 else
   glib_os = '#define G_OS_UNIX'
 endif
@@ -2827,6 +2833,12 @@ endif
 
 if enable_systemtap
   summary('tapset dir', get_option('tapset_install_dir'), section: 'Directories')
+endif
+
+if host_system == 'android'
+  summary({
+    'android_platform' : build_android_platform,
+  }, section: 'Target configuration')
 endif
 
 if host_system == 'linux'
