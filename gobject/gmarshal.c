@@ -113,6 +113,23 @@ g_cclosure_marshal_VOID__VOID (GClosure     *closure,
       data2 = closure->data;
     }
   callback = (GMarshalFunc_VOID__VOID) (marshal_data ? marshal_data : cc->callback);
+  if G_UNLIKELY (callback == NULL)
+    {
+      const GSignalInvocationHint *hint = invocation_hint;
+
+      g_critical ("%s: NULL callback for signal %u (%s), detail=%u, "
+                  "closure=%p, data1=%p, data2=%p, swap=%u, marshal_data=%p",
+                  G_STRFUNC,
+                  hint ? hint->signal_id : 0,
+                  hint ? g_signal_name (hint->signal_id) : NULL,
+                  hint ? hint->detail : 0,
+                  closure,
+                  data1,
+                  data2,
+                  G_CCLOSURE_SWAP_DATA (closure) ? 1 : 0,
+                  marshal_data);
+      return;
+    }
 
   callback (data1,
             data2);
@@ -161,6 +178,18 @@ g_cclosure_marshal_VOID__VOIDv (GClosure     *closure,
       data2 = closure->data;
     }
   callback = (GMarshalFunc_VOID__VOID) (marshal_data ? marshal_data : cc->callback);
+  if G_UNLIKELY (callback == NULL)
+    {
+      g_critical ("%s: NULL callback, closure=%p, instance=%p, data=%p, "
+                  "swap=%u, marshal_data=%p",
+                  G_STRFUNC,
+                  closure,
+                  instance,
+                  closure->data,
+                  G_CCLOSURE_SWAP_DATA (closure) ? 1 : 0,
+                  marshal_data);
+      return;
+    }
 
   callback (data1,
             data2);
