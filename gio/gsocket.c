@@ -4252,7 +4252,6 @@ typedef struct {
   GPollFD       pollfd;
 #else
   gpointer      fd_tag;
-  GIOCondition  prepared_condition;
 #endif
   GSocket      *socket;
   GIOCondition  condition;
@@ -4277,20 +4276,7 @@ socket_source_prepare (GSource *source,
 
   return (update_condition (socket_source->socket) & socket_source->condition) != 0;
 #else
-  if (g_socket_is_closed (socket_source->socket))
-    return socket_source->fd_tag != NULL;
-
-  /*
-   * xv6 can miss an edge notification after a partially drained TCP read while
-   * data is still buffered in the netconn mailbox.  Re-check the fd in
-   * prepare() so GLib async socket sources remain level-sensitive and do not
-   * park forever waiting for a second edge.
-   */
-  socket_source->prepared_condition =
-    g_socket_condition_check (socket_source->socket,
-                              socket_source->condition) &
-    socket_source->condition;
-  return socket_source->prepared_condition != 0;
+  return g_socket_is_closed (socket_source->socket) && socket_source->fd_tag != NULL;
 #endif
 }
 
@@ -4332,9 +4318,6 @@ socket_source_dispatch (GSource     *source,
   else
     {
       events = g_source_query_unix_fd (source, socket_source->fd_tag);
-      if (events == 0 && socket_source->prepared_condition != 0)
-        events = socket_source->prepared_condition;
-      socket_source->prepared_condition = 0;
     }
 #endif
 
@@ -4464,7 +4447,6 @@ socket_source_new (GSocket      *socket,
   g_source_add_poll (source, &socket_source->pollfd);
 #else
   socket_source->fd_tag = g_source_add_unix_fd (source, socket->priv->fd, condition);
-  socket_source->prepared_condition = 0;
 #endif
 
   if (socket->priv->timeout)
